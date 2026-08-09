@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>跑团开团表单视觉检查</title>
+    <link rel="stylesheet" href="../style.css">
+    <style>body { min-height: 100vh; margin: 0; background: #17191e; } .fixture { height: 90vh; }</style>
+</head>
+<body>
+    <main class="fixture" aria-label="SillyTavern 聊天区域"></main>
+    <button id="cwrpc-toggle" type="button"><span aria-hidden="true">🎲</span><span class="cwrpc-toggle-label">跑团</span></button>
+    <aside id="cwrpc-panel" class="open" aria-label="跑团控制台"><div class="cwrpc-panel-inner">
+        <header class="cwrpc-header"><div><strong>跑团控制台</strong><small>开新团 · 一屏就够</small></div><button class="cwrpc-icon" type="button">×</button></header>
+        <form class="cwrpc-form cwrpc-setup-form"><p class="cwrpc-hint">AI 使用当前酒馆模型；这里只设定本聊天的跑团起点。</p><label class="cwrpc-field"><span>团名</span><input value="新团"></label><label class="cwrpc-field"><span>题材</span><select><option>现代都市悬疑</option><option>奇幻冒险</option><option>成熟关系剧情</option><option>自定义</option></select></label><label class="cwrpc-field"><span>玩家角色名</span><input value="测试角色"></label><label class="cwrpc-field"><span>一句角色设定或想玩的感觉 <em>可空</em></span><input value="想要一点悬疑"></label><button class="cwrpc-primary" type="button">准备第一幕</button><button class="cwrpc-link" type="button">返回</button></form>
+    </div></aside>
+</body>
+</html>
