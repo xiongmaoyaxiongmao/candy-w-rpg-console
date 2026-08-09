@@ -138,7 +138,7 @@ function renderSetup() {
 
 function renderFirstScene() {
     const subtitle = state.enabled ? '主持契约与团状态已准备好' : '请先开启状态注入';
-    return `${header(subtitle)}<section class="cwrpc-welcome"><span class="cwrpc-welcome-die" aria-hidden="true">✦</span><h2>《${escapeHtml(state.campaign.name || DEFAULT_CAMPAIGN_NAME)}》准备好了</h2><p>AI 会主持场景与 NPC、一次只推进一段、不会替你决定行动；遇到不确定结果会明确告诉你掷什么骰子、难度多少。</p><button type="button" class="cwrpc-primary" data-action="start-first-scene" ${state.enabled && !startingFirstScene ? '' : 'disabled'}>${startingFirstScene ? '正在开始…' : '开始第一幕'}</button><button type="button" class="cwrpc-link" data-action="open-console">先看看控制台</button><p class="cwrpc-hint">点击“开始第一幕”才会用当前酒馆模型发送一次开场请求。</p></section>`;
+    return `${header(subtitle)}<section class="cwrpc-welcome"><span class="cwrpc-welcome-die" aria-hidden="true">✦</span><h2>《${escapeHtml(state.campaign.name || DEFAULT_CAMPAIGN_NAME)}》准备好了</h2><p>AI 会沿用当前聊天的角色卡、已激活世界书和前文，在保持角色演绎的同时主持场景与 NPC；遇到不确定结果会明确告诉你掷什么骰子、难度多少。</p><button type="button" class="cwrpc-primary" data-action="start-first-scene" ${state.enabled && !startingFirstScene ? '' : 'disabled'}>${startingFirstScene ? '正在开始…' : '开始或继续第一幕'}</button><button type="button" class="cwrpc-link" data-action="open-console">先看看控制台</button><p class="cwrpc-hint">点击后会自然沿用前文；只有空白新聊天才建立第一幕。</p></section>`;
 }
 
 function renderConsole() {

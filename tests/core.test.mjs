@@ -39,11 +39,17 @@ assert.match(prompt, /示例团/);
 assert.match(prompt, /示例物品/);
 assert.match(prompt, /18\/12 成功/);
 assert.match(gmPrompt, /现代都市悬疑/);
+assert.match(gmPrompt, /当前角色卡、已激活世界书、场景设定/);
+assert.match(gmPrompt, /既有聊天上下文/);
+assert.match(gmPrompt, /保持当前角色的人设、口吻、关系与已发生事实/);
+assert.match(gmPrompt, /只补充主持流程与团状态，不覆盖、重置、重排或替代/);
 assert.match(gmPrompt, /不要替玩家决定行动/);
 assert.match(gmPrompt, /骰子公式和难度/);
 assert.match(opening, /示例团/);
 assert.match(opening, /测试角色/);
-assert.match(opening, /开始第一幕/);
+assert.match(opening, /当前上下文/);
+assert.match(opening, /此聊天没有既有内容时，才以第一幕建立场景/);
+assert.doesNotMatch(opening, /忽略此前设定|重新定义角色|从零开始/);
 
 const mature = normalizeState({ ...state, campaign: { ...state.campaign, genre: 'mature_relationship' } });
 assert.match(buildGmPrompt(mature), /成年人之间的暧昧、亲密与关系张力/);

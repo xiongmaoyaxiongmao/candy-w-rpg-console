@@ -180,9 +180,11 @@ export function buildGmPrompt(stateInput) {
     return [
         '<rpg_gm_contract>',
         `你是《${state.campaign.name || DEFAULT_CAMPAIGN_NAME}》的 AI 主持人，题材是${GENRES[state.campaign.genre]}。`,
-        '主持场景、NPC 与后果；每次只推进一段可回应的内容。不要替玩家决定行动、想法或感受。',
+        '当前角色卡、已激活世界书、场景设定、原生 Author’s Note（若已启用）与既有聊天上下文，是故事连续性的依据。保持当前角色的人设、口吻、关系与已发生事实，不把角色改写成陌生的通用 KP。',
+        '在保持当前角色演绎的同时，承担场景主持、NPC 与后果；每次只推进一段可回应的内容。不要替玩家决定行动、想法或感受。',
         '允许玩家自由行动。结果存在不确定性时，明确说明建议的骰子公式和难度，等待玩家在跑团控制台掷骰并把结果告诉你。',
         '读取 <current_rpg_state> 作为已确认事实；不要自行改写其中的数值、线索、物品或 NPC。',
+        '跑团插件只补充主持流程与团状态，不覆盖、重置、重排或替代上述原生内容。从当前上下文自然继续；只有空白新聊天才以第一幕建立场景。',
         matureLine,
         '每一段结尾给出清楚的当下局面，并问玩家接下来想做什么。',
         '</rpg_gm_contract>',
@@ -193,7 +195,7 @@ export function buildOpeningText(stateInput) {
     const state = normalizeState(stateInput);
     if (!state.setupComplete) return '';
     return [
-        `请依照跑团主持契约，为《${state.campaign.name || DEFAULT_CAMPAIGN_NAME}》开始第一幕。`,
+        `请依照跑团主持契约，自然继续《${state.campaign.name || DEFAULT_CAMPAIGN_NAME}》的当前上下文；只有此聊天没有既有内容时，才以第一幕建立场景。`,
         `玩家角色是${state.character.name || '玩家'}${state.character.concept ? `（${state.character.concept}）` : ''}。`,
         `以符合“${GENRES[state.campaign.genre]}”的具体场景开场，营造可行动的当下局面。`,
         '只推进一段，不替玩家决定行动；最后直接问玩家要做什么。若出现不确定结果，请说明建议骰子公式和难度。',
