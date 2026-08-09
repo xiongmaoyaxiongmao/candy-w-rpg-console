@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/style.css"><title>Candy W v1 UI harness</title>
+<style>body{margin:0;min-height:100vh;background:#111;color:#eee}.harness-tools{position:relative;z-index:5000;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px}.harness-tools button{min-height:34px}</style></head>
+<body><nav class="harness-tools" aria-label="测试状态"><button data-state="no-chat">no-chat</button><button data-state="group">group</button><button data-state="welcome">welcome</button><button data-state="setup">setup</button><button data-state="console">console</button><button data-state="waiting">waiting</button><button data-state="error">error</button><button data-state="ended">ended</button></nav>
+<script type="module">
+import { RpgConsoleUi } from '/src/ui.js';
+import { ACTIONS, PHASES, beginGeneration, endCampaign, prepareCampaign } from '/src/domain.js';
+
+class HarnessAdapter { getSettings(){ return { showButton:true }; } }
+class HarnessApplication {
+  constructor(){ this.enabled=true; this.state=null; this.kind='single'; this.listeners=new Set(); }
+  subscribe(listener){ this.listeners.add(listener); return ()=>this.listeners.delete(listener); }
+  emit(type='saved'){ for(const listener of this.listeners) listener({type,state:this.currentState(),enabled:true}); }
+  currentState(){ return this.state; } chatKind(){ return this.kind; } hasChat(){ return this.kind==='single'; }
+  async createCampaign(input){ this.state=prepareCampaign(input); this.emit(); return this.state; }
+  async updateCampaign(){ this.emit(); } async updateScene(){ this.emit(); } async updatePlayer(){ this.emit(); }
+  async addCondition(){ this.emit(); } async removeCondition(){ this.emit(); } async addRecord(){ this.emit(); } async removeRecord(){ this.emit(); }
+  async rollCheck(){ this.emit(); } async importCampaign(){ this.emit(); }
+  async startOrContinue(){ this.state=beginGeneration(this.state,ACTIONS.OPENING,'harness'); this.emit(); }
+  async continueAfterCheck(){ this.state=beginGeneration(this.state,ACTIONS.CHECK_RESULT,'harness'); this.emit(); }
+  async endCampaign(){ this.state=endCampaign(this.state); this.emit(); }
+}
+const app=new HarnessApplication(); const ui=new RpgConsoleUi(app,new HarnessAdapter()); ui.mount(); ui.open=true; ui.render();
+const campaign=()=>prepareCampaign({campaign:{name:'雨夜档案',genre:'modern_mystery',objective:'找回失踪的朋友'},player:{name:'林晚',brief:'冷静的调查记者'}});
+window.__rpgHarness={ui,app,set(mode){ui.error='';ui.screen='console';app.kind='single';if(mode==='no-chat'){app.kind='none';app.state=null;}if(mode==='group'){app.kind='group';app.state=null;}if(mode==='welcome'){app.state=null;ui.screen='welcome';}if(mode==='setup'){app.state=null;ui.screen='setup';}if(mode==='console'){app.state=campaign();}if(mode==='waiting'){app.state=beginGeneration(campaign(),ACTIONS.OPENING,'waiting');}if(mode==='error'){app.state=campaign();ui.error='当前酒馆尚未连接模型，无法请求主持人。';}if(mode==='ended'){app.state=endCampaign(campaign());}ui.render();}};
+document.querySelectorAll('[data-state]').forEach(button=>button.addEventListener('click',()=>window.__rpgHarness.set(button.dataset.state)));
+</script></body></html>

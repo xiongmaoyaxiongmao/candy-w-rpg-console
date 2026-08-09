@@ -6,8 +6,8 @@
     "js": "index.js",
     "css": "style.css",
     "author": "Codex",
-    "version": "0.2.1",
+    "version": "1.0.0",
     "homePage": "https://github.com/xiongmaoyaxiongmao/candy-w-rpg-console",
     "auto_update": true,
-    "minimum_client_version": "1.17.0"
+    "minimum_client_version": "1.18.0"
 }
