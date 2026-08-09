@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>跑团控制台视觉检查</title>
+    <link rel="stylesheet" href="../style.css">
+    <style>body { min-height: 100vh; margin: 0; background: #17191e; } .fixture { height: 90vh; }</style>
+</head>
+<body>
+    <main class="fixture" aria-label="SillyTavern 聊天区域"></main>
+    <button id="cwrpc-toggle" type="button"><span aria-hidden="true">🎲</span><span class="cwrpc-toggle-label">跑团</span></button>
+    <aside id="cwrpc-panel" class="open" aria-label="跑团控制台">
+        <div class="cwrpc-panel-inner">
+            <header class="cwrpc-header"><div><strong>跑团控制台</strong><small>注入开启</small></div><button class="cwrpc-icon" type="button">×</button></header>
+            <div class="cwrpc-toolbar"><label class="cwrpc-switch"><input type="checkbox" checked> <span>注入当前团状态</span></label><button class="cwrpc-link" type="button">清空本聊天记录</button></div>
+            <nav class="cwrpc-tabs"><button class="active" type="button">状态</button><button type="button">掷骰 <b>3</b></button><button type="button">记录 <b>2</b></button></nav>
+            <section class="cwrpc-view"><form class="cwrpc-form"><div class="cwrpc-section-title">这一团</div><label class="cwrpc-field"><span>团名</span><input value="示例团"></label><label class="cwrpc-field"><span>当前场景</span><input value="测试场景"></label><label class="cwrpc-field"><span>当前目标</span><input value="完成示例目标"></label><div class="cwrpc-section-title">玩家角色</div><label class="cwrpc-field"><span>角色名</span><input value="测试角色"></label><div class="cwrpc-two-col"><label class="cwrpc-field"><span>体力</span><input type="number" value="7"></label><label class="cwrpc-field"><span>意志</span><input type="number" value="9"></label></div><p class="cwrpc-hint">状态只保存在当前聊天的 metadata，不会改写聊天消息。</p></form></section>
+            <footer class="cwrpc-footer"><button class="cwrpc-link" type="button">导出</button><button class="cwrpc-link" type="button">导入</button></footer>
+        </div>
+    </aside>
+</body>
+</html>

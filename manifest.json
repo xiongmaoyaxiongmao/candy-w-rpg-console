@@ -1,0 +1,13 @@
+{
+    "display_name": "Candy W 跑团控制台",
+    "loading_order": 120,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Codex",
+    "version": "0.1.0",
+    "homePage": "https://github.com/xiongmaoyaxiongmao/candy-w-rpg-console",
+    "auto_update": true,
+    "minimum_client_version": "1.17.0"
+}
