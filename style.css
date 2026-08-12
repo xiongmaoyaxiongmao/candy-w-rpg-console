@@ -42,11 +42,15 @@
     background: linear-gradient(135deg, color-mix(in srgb, var(--cw-panel) 92%, #2c261a), var(--cw-panel));
     color: var(--cw-ink);
     box-shadow: 0 9px 30px rgba(0, 0, 0, .34);
-    cursor: pointer;
+    cursor: grab;
     font: inherit;
     font-size: 13px;
     font-weight: 700;
     letter-spacing: .02em;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
     transition: transform .18s ease, border-color .18s ease, filter .18s ease;
 }
 
@@ -54,6 +58,14 @@
     border-color: var(--cw-gold);
     filter: brightness(1.08);
     transform: translateY(-1px);
+}
+
+#cw-director-toggle.is-dragging,
+#cw-director-toggle.is-dragging:hover {
+    cursor: grabbing;
+    filter: none;
+    transform: none;
+    transition: none;
 }
 
 #cw-director-toggle i {

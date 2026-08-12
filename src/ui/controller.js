@@ -1,6 +1,15 @@
 import { normalizeViewModel, renderPanel, renderToggle } from './render.js';
+import {
+    FLOATING_TOGGLE_POSITION_STORAGE_KEY,
+    clampFloatingTogglePosition,
+    didFloatingToggleMove,
+    parseFloatingTogglePosition,
+    positionFromFloatingTogglePointer,
+    serializeFloatingTogglePosition,
+} from './floating-toggle-position.js';
 
 const JSON_FILE_LIMIT = 2 * 1024 * 1024;
+const FLOATING_TOGGLE_INSET = 12;
 
 function messageOf(error) {
     return error instanceof Error ? error.message : String(error ?? '未知错误');
@@ -17,6 +26,22 @@ function parseJsonFile(file) {
 function safeFilename(value) {
     const name = String(value || 'candy-w-journey').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim();
     return name || 'candy-w-journey';
+}
+
+function loadFloatingTogglePosition() {
+    try {
+        return parseFloatingTogglePosition(globalThis.localStorage?.getItem(FLOATING_TOGGLE_POSITION_STORAGE_KEY));
+    } catch {
+        return null;
+    }
+}
+
+function persistFloatingTogglePosition(position) {
+    try {
+        globalThis.localStorage?.setItem(FLOATING_TOGGLE_POSITION_STORAGE_KEY, serializeFloatingTogglePosition(position));
+    } catch {
+        // A purely cosmetic preference must never prevent the story UI from opening.
+    }
 }
 
 export function campaignInputFromFormData(formData, fallbackScenarioId = '') {
@@ -52,6 +77,10 @@ export class DirectorUi {
         this.toggle = null;
         this.panel = null;
         this.previousFocus = null;
+        this.floatingTogglePosition = null;
+        this.floatingToggleDrag = null;
+        this.suppressToggleClick = false;
+        this.clearToggleClickSuppression = null;
         this.unsubscribe = this.app.subscribe(() => {
             this.reconcileScreen();
             this.render();
@@ -59,6 +88,12 @@ export class DirectorUi {
         this.onKeydown = event => {
             if (event.key === 'Escape' && this.open) this.close();
         };
+        this.onToggleClick = event => this.handleToggleClick(event);
+        this.onTogglePointerDown = event => this.handleTogglePointerDown(event);
+        this.onTogglePointerMove = event => this.handleTogglePointerMove(event);
+        this.onTogglePointerUp = event => this.handleTogglePointerUp(event);
+        this.onTogglePointerCancel = event => this.handleTogglePointerCancel(event);
+        this.onViewportChange = () => this.restoreFloatingTogglePosition();
     }
 
     mount() {
@@ -67,9 +102,14 @@ export class DirectorUi {
         this.toggle.id = 'cw-director-toggle';
         this.toggle.type = 'button';
         this.toggle.className = 'menu_button';
-        this.toggle.setAttribute('aria-label', '打开 Candy W 世界入口');
+        this.toggle.setAttribute('aria-label', '打开 Candy W 世界入口；可拖动移动入口位置');
         this.toggle.setAttribute('aria-controls', 'cw-director-panel');
-        this.toggle.addEventListener('click', () => this.show());
+        this.toggle.title = '拖动可移动；点击打开世界入口';
+        this.toggle.addEventListener('click', this.onToggleClick);
+        this.toggle.addEventListener('pointerdown', this.onTogglePointerDown);
+        this.toggle.addEventListener('pointermove', this.onTogglePointerMove);
+        this.toggle.addEventListener('pointerup', this.onTogglePointerUp);
+        this.toggle.addEventListener('pointercancel', this.onTogglePointerCancel);
         document.body.append(this.toggle);
 
         this.panel = document.createElement('aside');
@@ -83,14 +123,21 @@ export class DirectorUi {
         this.panel.addEventListener('change', event => void this.handleFileChange(event));
         document.body.append(this.panel);
         document.addEventListener('keydown', this.onKeydown);
+        window.addEventListener('resize', this.onViewportChange, { passive: true });
+        window.addEventListener('orientationchange', this.onViewportChange);
+        this.floatingTogglePosition = loadFloatingTogglePosition();
         this.refreshScenarios();
         this.render();
+        this.restoreFloatingTogglePosition();
         return this;
     }
 
     destroy() {
         this.unsubscribe?.();
         document.removeEventListener('keydown', this.onKeydown);
+        window.removeEventListener('resize', this.onViewportChange);
+        window.removeEventListener('orientationchange', this.onViewportChange);
+        if (this.clearToggleClickSuppression !== null) clearTimeout(this.clearToggleClickSuppression);
         this.toggle?.remove();
         this.panel?.remove();
         this.toggle = null;
@@ -138,6 +185,7 @@ export class DirectorUi {
         const viewModel = this.getViewModel();
         this.toggle.innerHTML = renderToggle(viewModel);
         this.toggle.setAttribute('aria-expanded', String(this.open));
+        this.restoreFloatingTogglePosition();
         this.panel.classList.toggle('is-open', this.open);
         this.panel.setAttribute('aria-hidden', String(!this.open));
         if (!this.open) return;
@@ -150,6 +198,140 @@ export class DirectorUi {
             localError: this.localError,
             busyAction: this.busyAction,
         });
+    }
+
+    floatingToggleViewport() {
+        return {
+            width: Math.max(0, Number(window.innerWidth) || document.documentElement.clientWidth || 0),
+            height: Math.max(0, Number(window.innerHeight) || document.documentElement.clientHeight || 0),
+        };
+    }
+
+    floatingToggleSize() {
+        const rect = this.toggle?.getBoundingClientRect();
+        return {
+            width: Math.max(0, rect?.width || this.toggle?.offsetWidth || 0),
+            height: Math.max(0, rect?.height || this.toggle?.offsetHeight || 0),
+        };
+    }
+
+    restoreFloatingTogglePosition() {
+        if (!this.toggle || this.floatingToggleDrag?.moved) return;
+        if (!this.floatingTogglePosition) {
+            this.toggle.style.removeProperty('left');
+            this.toggle.style.removeProperty('top');
+            this.toggle.style.removeProperty('right');
+            this.toggle.style.removeProperty('bottom');
+            return;
+        }
+        const toggle = this.floatingToggleSize();
+        if (!toggle.width || !toggle.height) return;
+        this.applyFloatingTogglePosition(clampFloatingTogglePosition(
+            this.floatingTogglePosition,
+            this.floatingToggleViewport(),
+            toggle,
+            FLOATING_TOGGLE_INSET,
+        ));
+    }
+
+    applyFloatingTogglePosition(position) {
+        if (!this.toggle) return;
+        this.toggle.style.left = `${position.left}px`;
+        this.toggle.style.top = `${position.top}px`;
+        this.toggle.style.right = 'auto';
+        this.toggle.style.bottom = 'auto';
+    }
+
+    handleToggleClick(event) {
+        if (this.suppressToggleClick) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.suppressToggleClick = false;
+            if (this.clearToggleClickSuppression !== null) clearTimeout(this.clearToggleClickSuppression);
+            this.clearToggleClickSuppression = null;
+            return;
+        }
+        this.show();
+    }
+
+    handleTogglePointerDown(event) {
+        if (!this.toggle || event.isPrimary === false || event.pointerType === 'mouse' && event.button !== 0) return;
+        const rect = this.toggle.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        this.floatingToggleDrag = {
+            pointerId: event.pointerId,
+            start: { clientX: event.clientX, clientY: event.clientY },
+            grabOffset: { x: event.clientX - rect.left, y: event.clientY - rect.top },
+            moved: false,
+        };
+        this.toggle.setPointerCapture?.(event.pointerId);
+    }
+
+    handleTogglePointerMove(event) {
+        const drag = this.floatingToggleDrag;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        if (!drag.moved && !didFloatingToggleMove(drag.start, event)) return;
+        drag.moved = true;
+        this.toggle?.classList.add('is-dragging');
+        event.preventDefault();
+        const toggle = this.floatingToggleSize();
+        if (!toggle.width || !toggle.height) return;
+        this.applyFloatingTogglePosition(positionFromFloatingTogglePointer(
+            event,
+            drag.grabOffset,
+            this.floatingToggleViewport(),
+            toggle,
+            FLOATING_TOGGLE_INSET,
+        ));
+    }
+
+    handleTogglePointerUp(event) {
+        const drag = this.floatingToggleDrag;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        const moved = drag.moved || didFloatingToggleMove(drag.start, event);
+        if (moved) {
+            const toggle = this.floatingToggleSize();
+            if (toggle.width && toggle.height) {
+                this.floatingTogglePosition = positionFromFloatingTogglePointer(
+                    event,
+                    drag.grabOffset,
+                    this.floatingToggleViewport(),
+                    toggle,
+                    FLOATING_TOGGLE_INSET,
+                );
+                this.applyFloatingTogglePosition(this.floatingTogglePosition);
+                persistFloatingTogglePosition(this.floatingTogglePosition);
+            }
+            event.preventDefault();
+            this.suppressToggleClick = true;
+            this.clearToggleClickSuppression = setTimeout(() => {
+                this.suppressToggleClick = false;
+                this.clearToggleClickSuppression = null;
+            }, 0);
+        }
+        this.releaseFloatingTogglePointer(drag.pointerId);
+        this.clearFloatingToggleDrag();
+    }
+
+    handleTogglePointerCancel(event) {
+        const drag = this.floatingToggleDrag;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        this.releaseFloatingTogglePointer(drag.pointerId);
+        this.clearFloatingToggleDrag();
+        this.restoreFloatingTogglePosition();
+    }
+
+    releaseFloatingTogglePointer(pointerId) {
+        try {
+            if (this.toggle?.hasPointerCapture?.(pointerId)) this.toggle.releasePointerCapture(pointerId);
+        } catch {
+            // The host may have already released capture while a pointer is cancelled.
+        }
+    }
+
+    clearFloatingToggleDrag() {
+        this.floatingToggleDrag = null;
+        this.toggle?.classList.remove('is-dragging');
     }
 
     async run(action, operation) {
