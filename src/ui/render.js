@@ -378,5 +378,5 @@ export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_L
 export function renderToggle(viewModel) {
     const view = normalizeViewModel(viewModel);
     const active = !['empty', 'ended'].includes(view.phase);
-    return `<span class="cw-toggle__mark" aria-hidden="true">✦</span><span>${active ? '故事' : '进入世界'}</span>${active ? '<i aria-label="旅程进行中"></i>' : ''}`;
+    return `<span class="cw-toggle__mark" aria-hidden="true">✦</span><span class="cw-toggle__label" aria-hidden="true">进入世界</span>${active ? '<i aria-label="旅程进行中"></i>' : ''}`;
 }

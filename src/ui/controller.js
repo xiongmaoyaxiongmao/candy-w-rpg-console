@@ -183,8 +183,16 @@ export class DirectorUi {
     render() {
         if (!this.toggle || !this.panel) return;
         const viewModel = this.getViewModel();
+        const view = normalizeViewModel(viewModel);
+        const active = !['empty', 'ended'].includes(view.phase);
         this.toggle.innerHTML = renderToggle(viewModel);
         this.toggle.setAttribute('aria-expanded', String(this.open));
+        this.toggle.setAttribute('aria-label', active
+            ? '打开 Candy W 故事；旅程进行中；可拖动移动入口位置'
+            : '打开 Candy W 世界入口；可拖动移动入口位置');
+        this.toggle.title = active
+            ? '旅程进行中；拖动可移动；点击查看故事'
+            : '拖动可移动；点击进入世界';
         this.restoreFloatingTogglePosition();
         this.panel.classList.toggle('is-open', this.open);
         this.panel.setAttribute('aria-hidden', String(!this.open));
