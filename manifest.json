@@ -1,13 +1,17 @@
 {
-    "display_name": "Candy W 跑团控制台",
+    "display_name": "Candy W 跑团导演 v2",
     "loading_order": 120,
     "requires": [],
     "optional": [],
+    "generate_interceptor": "candyWDirectorGenerationInterceptorV2",
     "js": "index.js",
     "css": "style.css",
     "author": "Codex",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "homePage": "https://github.com/xiongmaoyaxiongmao/candy-w-rpg-console",
     "auto_update": true,
-    "minimum_client_version": "1.18.0"
+    "minimum_client_version": "1.18.0",
+    "hooks": {
+        "disable": "disableCandyWDirector"
+    }
 }

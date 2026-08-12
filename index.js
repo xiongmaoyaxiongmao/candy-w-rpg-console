@@ -1,42 +1,69 @@
-import { EXTENSION_NAME } from './src/domain.js';
-import { PerChatRepository } from './src/repository.js';
-import { RpgApplication } from './src/application.js';
-import { SillyTavernAdapter } from './src/sillytavern-adapter.js';
-import { RpgConsoleUi } from './src/ui.js';
+import { DirectorApplication } from './src/application/index.js';
+import { validateDirectorState, validateScenario } from './src/domain/index.js';
+import { SillyTavernAdapter } from './src/host/sillytavern-adapter.js';
+import { PerChatRepository } from './src/persistence/per-chat-repository.js';
+import { DirectorUi } from './src/ui/index.js';
 
-const adapter = new SillyTavernAdapter();
-const application = new RpgApplication({ repository: new PerChatRepository(adapter), adapter });
-const ui = new RpgConsoleUi(application, adapter);
+let runtime = null;
 
-function installSettings() {
+function installSettings(application, adapter) {
+    document.querySelector('#cw-director-v2-settings')?.remove();
     const settings = adapter.getSettings();
-    adapter.saveSettings(settings);
     const host = document.createElement('div');
-    host.id = 'cwrpc-v1-settings';
-    host.innerHTML = `<div class="cwrpc-settings-title">Candy W 跑团控制台 v1</div><label><input type="checkbox" data-setting="enabled" ${settings.enabled ? 'checked' : ''}> 启用跑团控制台</label><label><input type="checkbox" data-setting="showButton" ${settings.showButton ? 'checked' : ''}> 显示“🎲 跑团”入口</label><p>关闭插件会清空唯一的跑团上下文注入；不会修改角色卡、世界书或聊天正文。</p>`;
-    host.addEventListener('change', event => {
-        const target = event.target;
-        const next = { ...adapter.getSettings(), [target.dataset.setting]: target.checked };
+    host.id = 'cw-director-v2-settings';
+    host.innerHTML = `<div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header"><b>Candy W 跑团导演 v2</b></div>
+        <div class="inline-drawer-content">
+            <label class="checkbox_label"><input type="checkbox" data-cw-setting="enabled" ${settings.enabled ? 'checked' : ''}> 启用看不见的故事导演</label>
+            <p>只在当前单角色聊天中工作；沿用当前模型、角色卡、聊天、世界书与原生上下文。关闭会清空本扩展的导演指令与 World Info scan seed。</p>
+        </div>
+    </div>`;
+    host.addEventListener('change', async event => {
+        const target = event.target.closest('[data-cw-setting="enabled"]');
+        if (!target) return;
         try {
-            if (target.dataset.setting === 'enabled') application.setEnabled(target.checked);
-            adapter.saveSettings(next);
-            ui.render();
+            await application.setEnabled(target.checked);
         } catch (error) {
             target.checked = !target.checked;
-            window.toastr?.error?.(error.message) ?? window.alert(error.message);
+            adapter.notifyError(error instanceof Error ? error.message : String(error));
         }
     });
     document.querySelector('#extensions_settings')?.append(host);
+    return () => host.remove();
 }
 
-function initialize() {
-    application.enabled = adapter.getSettings().enabled;
-    installSettings();
-    ui.mount();
-    void application.sync();
-    adapter.onChatChanged(() => application.onChatChanged());
+async function initializeCandyWDirector() {
+    if (runtime) return runtime;
+    const adapter = new SillyTavernAdapter();
+    const repository = new PerChatRepository({
+        adapter,
+        validateState: validateDirectorState,
+        validateScenario,
+    });
+    const application = new DirectorApplication({ adapter, repository }).start();
+    const ui = new DirectorUi(application).mount();
+    const removeSettings = installSettings(application, adapter);
+    runtime = { adapter, application, ui, removeSettings };
+    return runtime;
 }
 
-jQuery(() => initialize());
+export async function disableCandyWDirector() {
+    const current = runtime;
+    runtime = null;
+    if (!current) {
+        new SillyTavernAdapter().clearDirectorPrompts();
+        return;
+    }
+    current.ui.destroy();
+    current.removeSettings();
+    await current.application.destroy();
+}
 
-void EXTENSION_NAME;
+globalThis.disableCandyWDirector = disableCandyWDirector;
+
+jQuery(() => {
+    void initializeCandyWDirector().catch(error => {
+        new SillyTavernAdapter().clearDirectorPrompts();
+        globalThis.toastr?.error?.(`Candy W 初始化失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+});

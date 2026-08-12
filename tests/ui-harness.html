@@ -1,27 +1,146 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/style.css"><title>Candy W v1 UI harness</title>
-<style>body{margin:0;min-height:100vh;background:#111;color:#eee}.harness-tools{position:relative;z-index:5000;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px}.harness-tools button{min-height:34px}</style></head>
-<body><nav class="harness-tools" aria-label="测试状态"><button data-state="no-chat">no-chat</button><button data-state="group">group</button><button data-state="welcome">welcome</button><button data-state="setup">setup</button><button data-state="console">console</button><button data-state="waiting">waiting</button><button data-state="error">error</button><button data-state="ended">ended</button></nav>
-<script type="module">
-import { RpgConsoleUi } from '/src/ui.js';
-import { ACTIONS, PHASES, beginGeneration, endCampaign, prepareCampaign } from '/src/domain.js';
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Candy W Director real integration harness</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        body { min-height: 100vh; margin: 0; background: radial-gradient(circle at 20% 15%, #24322e, transparent 35%), #111514; color: #f5f0e8; }
+        .harness-stage { display: grid; min-height: 100vh; place-items: center; padding: 24px; font-family: system-ui, sans-serif; }
+        .harness-stage > div { max-width: 680px; opacity: .55; text-align: center; }
+        .harness-stage h1 { font-family: Georgia, serif; font-weight: 500; }
+        .harness-tools { position: fixed; z-index: 5000; top: 8px; left: 8px; display: flex; max-width: calc(100vw - 16px); flex-wrap: wrap; gap: 5px; padding: 6px; border-radius: 9px; background: rgba(0,0,0,.78); font: 11px system-ui, sans-serif; }
+        .harness-tools button { min-height: 32px; padding: 4px 8px; border: 1px solid #777; border-radius: 6px; background: #222; color: white; cursor: pointer; }
+        body[data-clean="true"] .harness-tools, body[data-clean="true"] .harness-stage { display: none; }
+    </style>
+</head>
+<body>
+    <nav class="harness-tools" aria-label="真实集成测试状态">
+        <button data-state="welcome">首次</button><button data-state="scenarios">剧本</button><button data-state="setup">玩家</button><button data-state="ready">入口</button><button data-state="opening">开场</button><button data-state="playing">进行</button><button data-state="known">已知世界</button><button data-state="chapter">章节</button><button data-state="check">判定</button><button data-state="resolving">骰后</button><button data-state="error">恢复</button><button data-state="ended">结局</button><button data-state="no-chat">无聊天</button><button data-state="group">群聊</button><button data-state="disabled">关闭</button>
+    </nav>
+    <main class="harness-stage"><div><p>Candy W UI integration harness</p><h1>生产 UI · 真实 application · per-chat repository</h1><p>页面只用隔离 fake official adapter 代替宿主和模型；所有画面均通过真实命令与状态机抵达。</p></div></main>
+    <script type="module">
+        import { DirectorApplication } from '/src/application/index.js';
+        import { validateDirectorState, validateScenario } from '/src/domain/index.js';
+        import { PerChatRepository } from '/src/persistence/per-chat-repository.js';
+        import { FOG_HARBOR_SCENARIO } from '/src/scenarios/index.js';
+        import { DirectorUi } from '/src/ui/index.js';
+        import { FakeOfficialAdapter } from '/tests/support/fake-official-adapter.mjs';
 
-class HarnessAdapter { getSettings(){ return { showButton:true }; } }
-class HarnessApplication {
-  constructor(){ this.enabled=true; this.state=null; this.kind='single'; this.listeners=new Set(); }
-  subscribe(listener){ this.listeners.add(listener); return ()=>this.listeners.delete(listener); }
-  emit(type='saved'){ for(const listener of this.listeners) listener({type,state:this.currentState(),enabled:true}); }
-  currentState(){ return this.state; } chatKind(){ return this.kind; } hasChat(){ return this.kind==='single'; }
-  async createCampaign(input){ this.state=prepareCampaign(input); this.emit(); return this.state; }
-  async updateCampaign(){ this.emit(); } async updateScene(){ this.emit(); } async updatePlayer(){ this.emit(); }
-  async addCondition(){ this.emit(); } async removeCondition(){ this.emit(); } async addRecord(){ this.emit(); } async removeRecord(){ this.emit(); }
-  async rollCheck(){ this.emit(); } async importCampaign(){ this.emit(); }
-  async startOrContinue(){ this.state=beginGeneration(this.state,ACTIONS.OPENING,'harness'); this.emit(); }
-  async continueAfterCheck(){ this.state=beginGeneration(this.state,ACTIONS.CHECK_RESULT,'harness'); this.emit(); }
-  async endCampaign(){ this.state=endCampaign(this.state); this.emit(); }
-}
-const app=new HarnessApplication(); const ui=new RpgConsoleUi(app,new HarnessAdapter()); ui.mount(); ui.open=true; ui.render();
-const campaign=()=>prepareCampaign({campaign:{name:'雨夜档案',genre:'modern_mystery',objective:'找回失踪的朋友'},player:{name:'林晚',brief:'冷静的调查记者'}});
-window.__rpgHarness={ui,app,set(mode){ui.error='';ui.screen='console';app.kind='single';if(mode==='no-chat'){app.kind='none';app.state=null;}if(mode==='group'){app.kind='group';app.state=null;}if(mode==='welcome'){app.state=null;ui.screen='welcome';}if(mode==='setup'){app.state=null;ui.screen='setup';}if(mode==='console'){app.state=campaign();}if(mode==='waiting'){app.state=beginGeneration(campaign(),ACTIONS.OPENING,'waiting');}if(mode==='error'){app.state=campaign();ui.error='当前酒馆尚未连接模型，无法请求主持人。';}if(mode==='ended'){app.state=endCampaign(campaign());}ui.render();}};
-document.querySelectorAll('[data-state]').forEach(button=>button.addEventListener('click',()=>window.__rpgHarness.set(button.dataset.state)));
-</script></body></html>
+        const PLAYER = {
+            name: '岑雨',
+            concept: '熟悉旧港设备、在暴雨夜临时回港的检修员',
+            relationship: '与当前角色曾共同处理过一次险情，彼此仍保留未说开的信任',
+            attributes: { body: 0, insight: 2, rapport: 1 },
+        };
+        const OPENING = '21:40，暴雨压住雾港海关门外的灯。小牧抱紧未送出的邮袋，远处潮门警灯第一次转红：零点前，你必须决定从哪里查起。';
+        const PERFORMANCE = '雨水沿铁门往下淌。你的行动让眼前局势真正改变，新的地点与目标已经清楚；当前角色看向你，把下一步留给你决定。';
+        let sequence = 0;
+        const deps = {
+            id: () => `tx_visual_${++sequence}`,
+            now: () => '2026-08-12T12:00:00.000Z',
+            random: () => 0.86,
+        };
+        const query = new URLSearchParams(location.search);
+        const initial = query.get('state') || 'playing';
+        const adapter = new FakeOfficialAdapter({ enabled: initial !== 'disabled' });
+        if (initial === 'group') adapter.selectGroup();
+        else if (initial === 'no-chat') adapter.selectNone();
+        else adapter.selectSingle('fog-guide.png', 'visual-chat');
+        const repository = new PerChatRepository({ adapter, validateState: validateDirectorState, validateScenario });
+        const app = new DirectorApplication({ adapter, repository, deps }).start();
+
+        async function createCampaign() {
+            await app.createCampaign({ scenarioId: FOG_HARBOR_SCENARIO.id, player: PLAYER });
+        }
+
+        async function openWorld() {
+            await createCampaign();
+            await app.enterWorld();
+        }
+
+        async function finishOpening() {
+            await openWorld();
+            await Promise.resolve();
+            await adapter.completeGeneration(OPENING);
+        }
+
+        async function act(text, actionId, attribute = null, reply = PERFORMANCE) {
+            await settleAutomaticRequest();
+            adapter.appendUser(text);
+            adapter.enqueueDecision(actionId, attribute, `尝试${actionId}`);
+            await adapter.completeGeneration(reply);
+            await settleAutomaticRequest();
+        }
+
+        async function reachPlaying() {
+            await finishOpening();
+            await act('我先去泵房检查被说成雷击的反馈线路。', 'gate_to_pump');
+        }
+
+        async function reachCheck() {
+            await finishOpening();
+            await act('我先去港务办公室核对封港调令。', 'gate_to_office');
+            await act('趁档案封箱前比对旧印、时间和疏散名单。', 'office_search_check', 'insight', '档案正在被装箱。你确认必须以洞察 d20 对抗难度 12；成功取得完整证据与名单，失败只能保住不完整副本。骰子交给你。');
+        }
+
+        async function reachEnded() {
+            await finishOpening();
+            await act('我决定不卷入封港命令，沿高地通道离开。', 'gate_leave');
+            const endedAfterFirstMove = repository.load();
+            if (endedAfterFirstMove?.phase === 'playing' && endedAfterFirstMove.hidden.currentSceneId === 'leave_harbor') {
+                await act('我登上最后一辆驶向高地的车。', 'leave_confirm', null, '卡车越过山脊，零点风暴潮在身后的雾港落下。离开也是一个不会自行撤回的选择。');
+            }
+            if (repository.load()?.phase !== 'ended') throw new Error(`结局夹具没有抵达 ended：${JSON.stringify({ phase: repository.load()?.phase, runtime: repository.loadRuntime() })}`);
+        }
+
+        async function settleAutomaticRequest() {
+            await Promise.resolve();
+            await Promise.resolve();
+        }
+
+        if (['ready'].includes(initial)) await createCampaign();
+        if (initial === 'opening') await openWorld();
+        if (['playing', 'known', 'chapter'].includes(initial)) await reachPlaying();
+        if (['check', 'resolving'].includes(initial)) {
+            await reachCheck();
+            if (initial === 'resolving') {
+                await app.rollPendingCheck();
+                await settleAutomaticRequest();
+            }
+        }
+        if (initial === 'error') {
+            await finishOpening();
+            adapter.appendUser('我去泵房检查线路。');
+            adapter.enqueueDecision('gate_to_pump');
+            await adapter.invokeInterceptor();
+            await adapter.stopGeneration();
+        }
+        if (initial === 'ended') {
+            await reachEnded();
+            await settleAutomaticRequest();
+        }
+
+        document.body.dataset.clean = String(query.get('clean') === '1');
+        const ui = new DirectorUi(app).mount();
+        ui.show();
+        await Promise.resolve();
+        if (initial === 'scenarios') await ui.perform('show-scenarios');
+        if (initial === 'setup') {
+            await ui.perform('show-scenarios');
+            await ui.perform('select-scenario', { scenarioId: FOG_HARBOR_SCENARIO.id });
+        }
+        if (initial === 'known') await ui.perform('set-tab', { tab: 'known' });
+        if (initial === 'chapter') await ui.perform('set-tab', { tab: 'chapter' });
+
+        function navigate(state) {
+            const next = new URL(location.href);
+            next.searchParams.set('state', state);
+            location.href = next.href;
+        }
+        document.querySelectorAll('[data-state]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.state)));
+        window.__candyWHarness = { adapter, app, repository, ui, state: initial, navigate };
+    </script>
+</body>
+</html>
