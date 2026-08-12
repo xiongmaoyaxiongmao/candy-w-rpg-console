@@ -34,10 +34,10 @@
     align-items: center;
     justify-content: center;
     gap: 0;
-    width: 64px;
-    height: 64px;
-    min-width: 64px;
-    min-height: 64px;
+    width: 45px;
+    height: 45px;
+    min-width: 45px;
+    min-height: 45px;
     padding: 0;
     border: 1px solid color-mix(in srgb, var(--cw-gold) 42%, var(--cw-border));
     border-radius: 50%;
@@ -72,20 +72,20 @@
 
 #cw-director-toggle i {
     position: absolute;
-    left: 8px;
-    bottom: 8px;
-    width: 7px;
-    height: 7px;
+    left: 6px;
+    bottom: 6px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--cw-green);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--cw-green) 16%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cw-green) 16%, transparent);
 }
 
 .cw-toggle__mark {
     color: var(--cw-gold);
     flex: 0 0 auto;
     font-family: Georgia, serif;
-    font-size: 25px;
+    font-size: 18px;
     line-height: 1;
 }
 
@@ -1380,10 +1380,10 @@ textarea:focus-visible,
     #cw-director-toggle {
         right: 9px;
         bottom: 66px;
-        width: 60px;
-        height: 60px;
-        min-width: 60px;
-        min-height: 60px;
+        width: 45px;
+        height: 45px;
+        min-width: 45px;
+        min-height: 45px;
         padding: 0;
     }
 

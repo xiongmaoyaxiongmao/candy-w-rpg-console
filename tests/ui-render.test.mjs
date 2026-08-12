@@ -148,7 +148,7 @@ test('responsive and accessibility CSS includes touch, focus and reduced-motion 
     const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
     assert.match(css, /@media \(max-width: 600px\)/);
     assert.match(css, /min-height: 44px/);
-    assert.match(css, /#cw-director-toggle \{[\s\S]*?width: 64px;[\s\S]*?height: 64px;[\s\S]*?border-radius: 50%;/);
+    assert.match(css, /#cw-director-toggle \{[\s\S]*?width: 45px;[\s\S]*?height: 45px;[\s\S]*?border-radius: 50%;/);
     assert.doesNotMatch(css, /\.cw-toggle__label/);
     assert.match(css, /:focus-visible/);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);

@@ -10,7 +10,7 @@ import {
 } from '../src/ui/floating-toggle-position.js';
 
 const viewport = Object.freeze({ width: 1280, height: 800 });
-const toggle = Object.freeze({ width: 64, height: 64 });
+const toggle = Object.freeze({ width: 45, height: 45 });
 const inset = 12;
 
 test('floating toggle position persists as a strict, portable pixel pair', () => {
@@ -36,15 +36,15 @@ test('floating toggle position persists as a strict, portable pixel pair', () =>
 test('floating toggle remains completely reachable after desktop viewport changes', () => {
     assert.deepEqual(
         clampFloatingTogglePosition({ left: 1168, top: 744 }, viewport, toggle, inset),
-        { left: 1168, top: 724 },
+        { left: 1168, top: 743 },
     );
     assert.deepEqual(
         clampFloatingTogglePosition({ left: -25, top: 1000 }, viewport, toggle, inset),
-        { left: 12, top: 724 },
+        { left: 12, top: 743 },
     );
     assert.deepEqual(
         clampFloatingTogglePosition({ left: 421, top: 316 }, { width: 390, height: 844 }, toggle, inset),
-        { left: 314, top: 316 },
+        { left: 333, top: 316 },
     );
 });
 
@@ -69,7 +69,7 @@ test('pointer positions move the toggle equivalently for mouse and touch input',
 
     assert.deepEqual(
         positionFromFloatingTogglePointer({ clientX: -30, clientY: 999, pointerType: 'touch' }, grabOffset, viewport, toggle, inset),
-        { left: 12, top: 724 },
+        { left: 12, top: 743 },
     );
 });
 
