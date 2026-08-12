@@ -132,9 +132,9 @@ test('generation, recovery, boundaries, ending and toggle have distinct states',
     assert.match(renderPanel({ viewModel: { enabled: true, host: { kind: 'group' }, phase: 'empty' } }), /只服务单人玩家/);
     assert.match(renderPanel({ viewModel: { enabled: false, host: { kind: 'single' }, phase: 'empty' } }), /启用 Candy W/);
     assert.match(renderPanel({ viewModel: { ...playing, phase: 'ended', ending: { title: '驶向黎明' } } }), /故事抵达结局/);
-    assert.match(renderToggle(playing), /进入世界/);
     assert.match(renderToggle(playing), /✦/);
     assert.match(renderToggle(playing), /旅程进行中/);
+    assert.doesNotMatch(renderToggle(playing), /进入世界/);
 });
 
 test('view-model aliases normalize without exposing unknown private fields', () => {
@@ -148,8 +148,8 @@ test('responsive and accessibility CSS includes touch, focus and reduced-motion 
     const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
     assert.match(css, /@media \(max-width: 600px\)/);
     assert.match(css, /min-height: 44px/);
-    assert.match(css, /#cw-director-toggle \{[\s\S]*?width: 80px;[\s\S]*?height: 80px;[\s\S]*?border-radius: 50%;/);
-    assert.match(css, /\.cw-toggle__label \{[\s\S]*?writing-mode: vertical-rl;/);
+    assert.match(css, /#cw-director-toggle \{[\s\S]*?width: 64px;[\s\S]*?height: 64px;[\s\S]*?border-radius: 50%;/);
+    assert.doesNotMatch(css, /\.cw-toggle__label/);
     assert.match(css, /:focus-visible/);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
     assert.match(css, /100dvh/);
