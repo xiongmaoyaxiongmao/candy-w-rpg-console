@@ -619,3 +619,44 @@ test('empty native World Info results fail before any script-writing generation 
     assert.deepEqual(harness.adapter.getSettings().importedScenarios, []);
     await harness.app.destroy();
 });
+
+test('a saved authored scenario can be revised without changing the current journey snapshot', async () => {
+    const harness = makeHarness();
+    const initial = structuredClone(FOG_HARBOR_SCENARIO);
+    delete initial.hash;
+    initial.id = 'fog-harbor-revision';
+    initial.contentVersion = '1.0.0';
+    initial.public.title = '雾港的第一次潮门';
+    harness.adapter.enqueueRaw(JSON.stringify(initial));
+    await harness.app.writeCustomScenario({
+        title: '雾港的第一次潮门', premise: '潮门将在零点前开启。', tone: '', setting: '雾港。', opening: '暴雨落下。',
+        coreTruth: '风暴不可避免。', npcGoals: '每个人都想保住自己的城区。', timePressure: '零点潮逼近。', endings: '选择洪水去向。',
+    });
+    await harness.app.createCampaign({ scenarioId: initial.id, player: PLAYER });
+    const snapshotHash = harness.repository.loadScenario().hash;
+
+    const revised = structuredClone(initial);
+    revised.public.title = '雾港的最后一道潮门';
+    revised.public.tagline = '旧港与仓区都在等待同一个答案。';
+    harness.adapter.enqueueRaw(JSON.stringify(revised));
+    const result = await harness.app.reviseScenario({ scenarioId: initial.id, instruction: '把故事改成最后一道潮门的选择。' });
+
+    assert.equal(result.title, '雾港的最后一道潮门');
+    assert.notEqual(harness.adapter.getSettings().importedScenarios[0].hash, snapshotHash);
+    assert.equal(harness.repository.loadScenario().hash, snapshotHash, 'an active journey keeps its pinned scenario snapshot');
+    assert.equal(harness.app.listScenarios().find(item => item.id === initial.id).editable, true);
+    await harness.app.destroy();
+});
+
+test('built-in scenarios cannot be revised and an invalid rewrite leaves the saved source intact', async () => {
+    const harness = makeHarness();
+    await assert.rejects(harness.app.reviseScenario({ scenarioId: FOG_HARBOR_SCENARIO.id, instruction: '改掉结局。' }), /只能修改/);
+
+    const source = structuredClone(FOG_HARBOR_SCENARIO);
+    harness.adapter.settings.importedScenarios = [source];
+    harness.app.scenarios.set(`${source.id}@${source.hash}`, structuredClone(source));
+    harness.adapter.enqueueRaw('不是 JSON');
+    await assert.rejects(harness.app.reviseScenario({ scenarioId: source.id, instruction: '改掉结局。' }), /单一、严格的 JSON/);
+    assert.equal(harness.adapter.getSettings().importedScenarios[0].hash, source.hash);
+    await harness.app.destroy();
+});

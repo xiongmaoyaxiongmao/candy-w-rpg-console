@@ -76,6 +76,7 @@ function normalizeScenario(scenario, index = 0) {
         version: string(value.version),
         symbol: string(first(value.symbol, object(value.cover).symbol), '✦'),
         tags,
+        editable: value.editable === true,
     };
 }
 
@@ -271,7 +272,21 @@ function renderPlayerSetup(scenario) {
             <p class="cw-form-note">当前角色卡仍决定与你对话之人的人设、关系与口吻。</p>
             ${button('建立旅程', 'submit-create', { icon: 'spark' })}
         </form>
-        <button type="button" class="cw-text-button" data-action="back-scenarios">重新选剧本</button>
+        <div class="cw-bottom-actions">${scenario.editable ? button('修改这个剧本', 'show-revision', { className: 'cw-button cw-button--secondary', icon: 'spark', data: { scenarioId: scenario.id } }) : ''}<button type="button" class="cw-text-button" data-action="back-scenarios">重新选剧本</button></div>
+    </section>`;
+}
+
+function renderScenarioRevision(scenario, draft) {
+    const instruction = escapeHtml(string(draft?.instruction));
+    return `<section class="cw-page cw-scenario-authoring">
+        <div class="cw-page-heading"><p class="cw-eyebrow">修改剧本</p><h2>想让这个世界哪里不一样？</h2><p>写下要改的内容，例如结局、人物动机、事件顺序或判定风险。系统会重写完整剧本并重新校验；已开始的旅程仍使用它们自己的旧快照。</p></div>
+        <form class="cw-form" data-form="revise-scenario">
+            <input type="hidden" name="scenarioId" value="${escapeHtml(string(draft?.scenarioId || scenario.id))}">
+            <label><span>修改说明</span><textarea name="instruction" maxlength="1600" rows="7" required placeholder="例如：把最终决定改为救旧港，但让魏朔的动机更有说服力；保留所有判定与倒计时。">${instruction}</textarea></label>
+            <p class="cw-form-note">只有校验通过的新版本会替换剧本库中的这份剧本；当前进行中的旅程不会被改变。</p>
+            ${button('重写并保存剧本', 'submit-scenario-revision', { icon: 'spark' })}
+        </form>
+        <button type="button" class="cw-text-button" data-action="back-scenarios">返回剧本库</button>
     </section>`;
 }
 
@@ -383,7 +398,7 @@ function renderHostBoundary(view) {
     return '';
 }
 
-export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_LIST, selectedScenarioId = '', activeTab = 'now', localError = '', busyAction = '', authoringDraft = {}, worldAuthoringDraft = {} }) {
+export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_LIST, selectedScenarioId = '', activeTab = 'now', localError = '', busyAction = '', authoringDraft = {}, worldAuthoringDraft = {}, revisionDraft = {} }) {
     const view = normalizeViewModel(viewModel);
     const normalizedScenarios = scenarios.map(normalizeScenario);
     const selectedScenario = normalizedScenarios.find(scenario => scenario.id === selectedScenarioId) ?? normalizedScenarios[0] ?? normalizeScenario({});
@@ -394,6 +409,7 @@ export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_L
             if (screen === 'scenarios') content = renderScenarioLibrary(normalizedScenarios, selectedScenarioId);
             else if (screen === 'authoring') content = renderScenarioAuthoring(authoringDraft);
             else if (screen === 'world-authoring') content = renderWorldInfoScenarioAuthoring(worldAuthoringDraft);
+            else if (screen === 'revision' && selectedScenario.editable) content = renderScenarioRevision(selectedScenario, revisionDraft);
             else if (screen === 'player') content = renderPlayerSetup(selectedScenario);
             else content = renderWelcome();
         } else if (view.phase === 'ready') content = renderWorldGate(view);

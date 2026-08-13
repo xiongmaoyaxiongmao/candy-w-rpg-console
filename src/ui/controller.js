@@ -14,6 +14,7 @@ const CUSTOM_SCENARIO_FIELDS = Object.freeze([
     'title', 'premise', 'tone', 'setting', 'opening', 'coreTruth', 'npcGoals', 'timePressure', 'endings',
 ]);
 const WORLD_INFO_SCENARIO_FIELDS = Object.freeze(['title', 'outcome', 'anchors']);
+const SCENARIO_REVISION_FIELDS = Object.freeze(['scenarioId', 'instruction']);
 
 function messageOf(error) {
     return error instanceof Error ? error.message : String(error ?? '未知错误');
@@ -75,6 +76,10 @@ export function worldInfoScenarioInputFromFormData(formData) {
     return Object.fromEntries(WORLD_INFO_SCENARIO_FIELDS.map(field => [field, String(formData.get(field) ?? '').trim()]));
 }
 
+export function scenarioRevisionInputFromFormData(formData) {
+    return Object.fromEntries(SCENARIO_REVISION_FIELDS.map(field => [field, String(formData.get(field) ?? '').trim()]));
+}
+
 export class DirectorUi {
     constructor(application) {
         if (!application || typeof application.getViewModel !== 'function' || typeof application.subscribe !== 'function') throw new Error('DirectorUi 需要完整的 application 接口。');
@@ -86,6 +91,7 @@ export class DirectorUi {
         this.selectedScenarioId = '';
         this.authoringDraft = Object.fromEntries(CUSTOM_SCENARIO_FIELDS.map(field => [field, '']));
         this.worldAuthoringDraft = Object.fromEntries(WORLD_INFO_SCENARIO_FIELDS.map(field => [field, '']));
+        this.revisionDraft = Object.fromEntries(SCENARIO_REVISION_FIELDS.map(field => [field, '']));
         this.localError = '';
         this.busyAction = '';
         this.toggle = null;
@@ -223,6 +229,7 @@ export class DirectorUi {
             busyAction: this.busyAction,
             authoringDraft: this.authoringDraft,
             worldAuthoringDraft: this.worldAuthoringDraft,
+            revisionDraft: this.revisionDraft,
         });
     }
 
@@ -369,6 +376,9 @@ export class DirectorUi {
         if (form?.dataset.form === 'write-world-info-scenario' && WORLD_INFO_SCENARIO_FIELDS.includes(target.name)) {
             this.worldAuthoringDraft = { ...this.worldAuthoringDraft, [target.name]: String(target.value ?? '') };
         }
+        if (form?.dataset.form === 'revise-scenario' && SCENARIO_REVISION_FIELDS.includes(target.name)) {
+            this.revisionDraft = { ...this.revisionDraft, [target.name]: String(target.value ?? '') };
+        }
     }
 
     async run(action, operation) {
@@ -401,6 +411,12 @@ export class DirectorUi {
         if (action === 'back-scenarios') { this.screen = 'scenarios'; this.render(); return; }
         if (action === 'show-authoring') { this.screen = 'authoring'; this.render(); return; }
         if (action === 'show-world-authoring') { this.screen = 'world-authoring'; this.render(); return; }
+        if (action === 'show-revision') {
+            this.revisionDraft = { scenarioId: String(data.scenarioId ?? this.selectedScenarioId), instruction: '' };
+            this.screen = 'revision';
+            this.render();
+            return;
+        }
         if (action === 'select-scenario') {
             this.selectedScenarioId = String(data.scenarioId ?? '');
             this.screen = 'player';
@@ -430,7 +446,7 @@ export class DirectorUi {
     async handleClick(event) {
         const target = event.target.closest('[data-action]');
         if (!target || target.disabled) return;
-        if (target.dataset.action === 'submit-create' || target.dataset.action === 'submit-custom-scenario' || target.dataset.action === 'submit-world-info-scenario') {
+        if (target.dataset.action === 'submit-create' || target.dataset.action === 'submit-custom-scenario' || target.dataset.action === 'submit-world-info-scenario' || target.dataset.action === 'submit-scenario-revision') {
             target.closest('form')?.requestSubmit();
             return;
         }
@@ -456,6 +472,17 @@ export class DirectorUi {
             this.worldAuthoringDraft = input;
             await this.run('write-world-info-scenario', async () => {
                 const scenario = await this.app.writeScenarioFromWorldInfo(input);
+                this.selectedScenarioId = String(scenario.id ?? '');
+                await this.refreshScenarios();
+                this.screen = 'player';
+            });
+            return;
+        }
+        if (form.dataset.form === 'revise-scenario') {
+            const input = scenarioRevisionInputFromFormData(new FormData(form));
+            this.revisionDraft = input;
+            await this.run('revise-scenario', async () => {
+                const scenario = await this.app.reviseScenario(input);
                 this.selectedScenarioId = String(scenario.id ?? '');
                 await this.refreshScenarios();
                 this.screen = 'player';

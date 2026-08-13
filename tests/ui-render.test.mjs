@@ -79,6 +79,22 @@ test('world info authoring asks for a desired outcome and optional scan anchors 
     assert.doesNotMatch(html, /name="secrets"|name="scenes"/);
 });
 
+test('saved authored scenarios expose natural-language revision without exposing raw schema', () => {
+    const editableScenario = { ...scenario, editable: true };
+    const setup = renderPanel({ viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' }, screen: 'player', scenarios: [editableScenario], selectedScenarioId: editableScenario.id });
+    assert.match(setup, /修改这个剧本/);
+
+    const revision = renderPanel({
+        viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' },
+        screen: 'revision', scenarios: [editableScenario], selectedScenarioId: editableScenario.id,
+        revisionDraft: { scenarioId: editableScenario.id, instruction: '把结局改成旧港获救。' },
+    });
+    assert.match(revision, /想让这个世界哪里不一样/);
+    assert.match(revision, /data-form="revise-scenario"/);
+    assert.match(revision, /把结局改成旧港获救/);
+    assert.doesNotMatch(revision, /name="secrets"|name="scenes"/);
+});
+
 test('player setup collects relationship and a unique +2 +1 +0 allocation', () => {
     const html = renderPanel({ viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' }, screen: 'player', scenarios: [scenario], selectedScenarioId: scenario.id });
     assert.match(html, /name="playerRelationship"/);

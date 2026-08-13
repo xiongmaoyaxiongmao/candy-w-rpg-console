@@ -22,12 +22,15 @@ import {
 import { compileWorldInfoScanSeed } from '../compilation/index.js';
 import {
     buildCustomScenarioPrompt,
+    buildScenarioRevisionPrompt,
     buildWorldInfoScenarioPrompt,
     buildActionDecisionPrompt,
     buildPerformanceDirective,
     parseAndFinalizeCustomScenario,
+    parseAndFinalizeScenarioRevision,
     parseAndValidateActionDecision,
     assertWorldInfoScenarioRequest,
+    assertScenarioRevisionRequest,
     validatePerformanceMessage,
 } from '../protocol/index.js';
 import { createRuntimeState } from '../persistence/per-chat-repository.js';
@@ -116,6 +119,25 @@ export class DirectorApplication {
         if (!validateScenario(scenario)) throw new Error('拒绝注册无效的 Candy W v2 剧本。');
         if (!analyzeScenarioGraph(scenario).isComplete) throw new Error('拒绝注册剧情图不完整的 Candy W v2 剧本。');
         this.scenarios.set(`${scenario.id}@${scenario.hash}`, clone(scenario));
+    }
+
+    #storeUserScenario(scenario, event) {
+        const settings = this.adapter.getSettings();
+        const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
+        this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
+        for (const key of this.scenarios.keys()) {
+            if (key.startsWith(`${scenario.id}@`)) this.scenarios.delete(key);
+        }
+        this.#registerScenario(scenario);
+        this.#emit(event);
+        return publicScenario(scenario);
+    }
+
+    #assertWritingIdle() {
+        const { state } = this.#loadPair();
+        if (state?.phase === 'generating' || this.activeTransactionId || this.activeUnderstanding || this.adapter.generationStatus?.().active) {
+            throw new Error('当前连接仍在生成中；请等待这一轮结束后再编写或修改剧本。');
+        }
     }
 
     #enabled() {
@@ -234,7 +256,8 @@ export class DirectorApplication {
     }
 
     listScenarios() {
-        return [...this.scenarios.values()].map(publicScenario);
+        const editableIds = new Set((this.adapter.getSettings?.().importedScenarios ?? []).map(scenario => scenario?.id));
+        return [...this.scenarios.values()].map(scenario => ({ ...publicScenario(scenario), editable: editableIds.has(scenario.id) }));
     }
 
     getViewModel() {
@@ -749,40 +772,21 @@ export class DirectorApplication {
 
     async importScenario(payload) {
         const scenario = importScenarioPackage(payload);
-        this.#registerScenario(scenario);
-        const settings = this.adapter.getSettings();
-        const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
-        this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
-        this.#emit('scenario-imported');
-        return publicScenario(scenario);
+        return this.#storeUserScenario(scenario, 'scenario-imported');
     }
 
     async writeCustomScenario(brief) {
         const identity = this.#requireSingle();
-        const { state } = this.#loadPair();
-        if (state?.phase === 'generating' || this.activeTransactionId || this.activeUnderstanding) {
-            throw new Error('当前旅程仍在生成中；请等待这一轮结束后再编写新剧本。');
-        }
-        if (this.adapter.generationStatus?.().active) {
-            throw new Error('当前连接正在生成；请等待这一轮结束后再编写新剧本。');
-        }
+        this.#assertWritingIdle();
         const raw = await this.adapter.generateRawText(buildCustomScenarioPrompt(brief), identity, { responseLength: 8_000 });
         this.#assertMayContinue(identity, '剧本编写');
         const scenario = parseAndFinalizeCustomScenario(raw);
-        this.#registerScenario(scenario);
-        const settings = this.adapter.getSettings();
-        const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
-        this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
-        this.#emit('scenario-written');
-        return publicScenario(scenario);
+        return this.#storeUserScenario(scenario, 'scenario-written');
     }
 
     async writeScenarioFromWorldInfo(input) {
         const identity = this.#requireSingle();
-        const { state } = this.#loadPair();
-        if (state?.phase === 'generating' || this.activeTransactionId || this.activeUnderstanding || this.adapter.generationStatus?.().active) {
-            throw new Error('当前连接仍在生成中；请等待这一轮结束后再编写新剧本。');
-        }
+        this.#assertWritingIdle();
         const request = assertWorldInfoScenarioRequest(input);
         const scanSeed = compileWorldInfoScanSeed([request.title, request.outcome, request.anchors].filter(Boolean));
         const nativeWorldInfo = await this.adapter.collectNativeWorldInfo(scanSeed, identity);
@@ -790,12 +794,19 @@ export class DirectorApplication {
         const raw = await this.adapter.generateRawText(buildWorldInfoScenarioPrompt(request, nativeWorldInfo), identity, { responseLength: 8_000 });
         this.#assertMayContinue(identity, '剧本编写');
         const scenario = parseAndFinalizeCustomScenario(raw);
-        this.#registerScenario(scenario);
-        const settings = this.adapter.getSettings();
-        const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
-        this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
-        this.#emit('world-info-scenario-written');
-        return publicScenario(scenario);
+        return this.#storeUserScenario(scenario, 'world-info-scenario-written');
+    }
+
+    async reviseScenario(input) {
+        const identity = this.#requireSingle();
+        this.#assertWritingIdle();
+        const request = assertScenarioRevisionRequest(input);
+        const source = (this.adapter.getSettings().importedScenarios ?? []).find(scenario => scenario?.id === request.scenarioId);
+        if (!source || !validateScenario(source)) throw new Error('只能修改当前设备中已写入的剧本。');
+        const raw = await this.adapter.generateRawText(buildScenarioRevisionPrompt(request, source), identity, { responseLength: 8_000 });
+        this.#assertMayContinue(identity, '剧本修改');
+        const scenario = parseAndFinalizeScenarioRevision(raw, { scenarioId: source.id, contentVersion: source.contentVersion });
+        return this.#storeUserScenario(scenario, 'scenario-revised');
     }
 
     async importSave(payload) {

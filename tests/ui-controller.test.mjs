@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DirectorUi, campaignInputFromFormData, customScenarioInputFromFormData, worldInfoScenarioInputFromFormData } from '../src/ui/controller.js';
+import { DirectorUi, campaignInputFromFormData, customScenarioInputFromFormData, scenarioRevisionInputFromFormData, worldInfoScenarioInputFromFormData } from '../src/ui/controller.js';
 
 class FakeApplication {
     constructor() {
@@ -21,6 +21,7 @@ class FakeApplication {
     async importSave(input) { this.calls.push(['importSave', input]); }
     async writeCustomScenario(input) { this.calls.push(['writeCustomScenario', input]); return { id: 'written-story', title: input.title }; }
     async writeScenarioFromWorldInfo(input) { this.calls.push(['writeScenarioFromWorldInfo', input]); return { id: 'world-story', title: input.title }; }
+    async reviseScenario(input) { this.calls.push(['reviseScenario', input]); return { id: input.scenarioId, title: '修订后的故事' }; }
     exportSave() { this.calls.push(['exportSave']); return { format: 'save' }; }
     setEnabled(enabled) { this.calls.push(['setEnabled', enabled]); }
 }
@@ -90,6 +91,17 @@ test('world info form parser keeps only desired outcome and native scan anchors'
         title: '雾港最后一道潮门',
         outcome: '在零点前决定洪水流向。',
         anchors: '雾港, 潮门, 旧港',
+    });
+});
+
+test('scenario revision parser keeps only a target id and requested changes', () => {
+    const form = new FormData();
+    form.set('scenarioId', 'fog-harbor-revision');
+    form.set('instruction', '把结局改成救援旧港。');
+    form.set('hidden', 'must not cross the UI boundary');
+    assert.deepEqual(scenarioRevisionInputFromFormData(form), {
+        scenarioId: 'fog-harbor-revision',
+        instruction: '把结局改成救援旧港。',
     });
 });
 
