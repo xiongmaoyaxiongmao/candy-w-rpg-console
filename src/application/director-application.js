@@ -21,20 +21,15 @@ import {
 } from '../io/index.js';
 import { compileWorldInfoScanSeed } from '../compilation/index.js';
 import {
-    buildCustomScenarioPrompt,
-    buildScenarioRevisionPrompt,
-    buildWorldInfoScenarioPrompt,
     buildActionDecisionPrompt,
     buildPerformanceDirective,
-    parseAndFinalizeCustomScenario,
-    parseAndFinalizeScenarioRevision,
     parseAndValidateActionDecision,
-    assertWorldInfoScenarioRequest,
     assertScenarioRevisionRequest,
     validatePerformanceMessage,
 } from '../protocol/index.js';
 import { createRuntimeState } from '../persistence/per-chat-repository.js';
 import { BUILT_IN_SCENARIOS } from '../scenarios/index.js';
+import { ScenarioAuthoringService } from './scenario-authoring-service.js';
 
 const ATTRIBUTES = Object.freeze([
     { id: 'body', label: '身手' },
@@ -109,6 +104,10 @@ export class DirectorApplication {
         this.branchAdoption = null;
         this.localError = null;
         this.scenarios = new Map();
+        this.scenarioAuthoring = new ScenarioAuthoringService({
+            adapter,
+            assertMayContinue: (identity, stage) => this.#assertMayContinue(identity, stage),
+        });
         for (const scenario of scenarios) this.#registerScenario(scenario);
         for (const scenario of adapter.getSettings?.().importedScenarios ?? []) {
             if (validateScenario(scenario)) this.#registerScenario(scenario);
@@ -778,22 +777,14 @@ export class DirectorApplication {
     async writeCustomScenario(brief) {
         const identity = this.#requireSingle();
         this.#assertWritingIdle();
-        const raw = await this.adapter.generateRawText(buildCustomScenarioPrompt(brief), identity, { responseLength: 8_000 });
-        this.#assertMayContinue(identity, '剧本编写');
-        const scenario = parseAndFinalizeCustomScenario(raw);
+        const scenario = await this.scenarioAuthoring.writeBrief(brief, identity);
         return this.#storeUserScenario(scenario, 'scenario-written');
     }
 
     async writeScenarioFromWorldInfo(input) {
         const identity = this.#requireSingle();
         this.#assertWritingIdle();
-        const request = assertWorldInfoScenarioRequest(input);
-        const scanSeed = compileWorldInfoScanSeed([request.title, request.outcome, request.anchors].filter(Boolean));
-        const nativeWorldInfo = await this.adapter.collectNativeWorldInfo(scanSeed, identity);
-        this.#assertMayContinue(identity, '世界书扫描');
-        const raw = await this.adapter.generateRawText(buildWorldInfoScenarioPrompt(request, nativeWorldInfo), identity, { responseLength: 8_000 });
-        this.#assertMayContinue(identity, '剧本编写');
-        const scenario = parseAndFinalizeCustomScenario(raw);
+        const scenario = await this.scenarioAuthoring.writeFromWorldInfo(input, identity);
         return this.#storeUserScenario(scenario, 'world-info-scenario-written');
     }
 
@@ -803,9 +794,7 @@ export class DirectorApplication {
         const request = assertScenarioRevisionRequest(input);
         const source = (this.adapter.getSettings().importedScenarios ?? []).find(scenario => scenario?.id === request.scenarioId);
         if (!source || !validateScenario(source)) throw new Error('只能修改当前设备中已写入的剧本。');
-        const raw = await this.adapter.generateRawText(buildScenarioRevisionPrompt(request, source), identity, { responseLength: 8_000 });
-        this.#assertMayContinue(identity, '剧本修改');
-        const scenario = parseAndFinalizeScenarioRevision(raw, { scenarioId: source.id, contentVersion: source.contentVersion });
+        const scenario = await this.scenarioAuthoring.revise(request, source, identity);
         return this.#storeUserScenario(scenario, 'scenario-revised');
     }
 
