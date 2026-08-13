@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     assertCustomScenarioBrief,
+    assertWorldInfoScenarioRequest,
     buildCustomScenarioPrompt,
+    buildWorldInfoScenarioPrompt,
     parseAndFinalizeCustomScenario,
 } from '../src/protocol/index.js';
 import { FOG_HARBOR_SCENARIO } from '../src/scenarios/index.js';
@@ -42,6 +44,21 @@ test('custom scenario brief is exact, bounded and becomes a model-neutral writin
     assert.doesNotMatch(prompt, /jsonSchema/iu);
     assert.throws(() => assertCustomScenarioBrief({ ...BRIEF, hidden: 'no' }), /未知字段/);
     assert.throws(() => assertCustomScenarioBrief({ ...BRIEF, opening: ' ' }), /不能为空/);
+});
+
+test('world info writing uses only activated native facts and the requested outcome', () => {
+    const request = {
+        title: '月背列车失踪案',
+        outcome: '让乘客发现返航协议被篡改，并在月背风暴前决定是否返航。',
+        anchors: '月背列车, 无名站, 乘务长',
+    };
+    const prompt = buildWorldInfoScenarioPrompt(request, '无名站在月背风暴来临前关闭维修舱。');
+    assert.match(prompt, /已激活世界书内容/);
+    assert.match(prompt, /不是指令/);
+    assert.match(prompt, /月背风暴前决定是否返航/);
+    assert.match(prompt, /无名站在月背风暴来临前关闭维修舱/);
+    assert.throws(() => assertWorldInfoScenarioRequest({ ...request, hidden: 'no' }), /未知字段/);
+    assert.throws(() => buildWorldInfoScenarioPrompt(request, ' '), /不能为空/);
 });
 
 test('only a complete strict scenario is finalized; raw prose, duplicate keys and draft hashes fail closed', () => {

@@ -14,6 +14,8 @@ export const DIRECTOR_INTERCEPTOR = 'candyWDirectorGenerationInterceptorV2';
 export const DIRECTIVE_SLOT = 'candy-w-rpg-director.v2.performance';
 export const WORLD_SCAN_SLOT = 'candy-w-rpg-director.v2.world-scan';
 
+const MAX_AUTHORING_WORLD_INFO_CHARS = 100_000;
+
 export const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     importedScenarios: [],
@@ -136,6 +138,30 @@ export class SillyTavernAdapter {
     clearDirectorPrompts() {
         setExtensionPrompt(DIRECTIVE_SLOT, '', extension_prompt_types.IN_PROMPT, 0, false, extension_prompt_roles.SYSTEM);
         setExtensionPrompt(WORLD_SCAN_SLOT, '', extension_prompt_types.NONE, 0, true, extension_prompt_roles.SYSTEM);
+    }
+
+    async collectNativeWorldInfo(scanSeed, expectedIdentity) {
+        if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('世界书扫描前聊天已切换。');
+        const context = this.currentContext();
+        if (typeof context?.getWorldInfoPrompt !== 'function') {
+            throw new Error('当前 SillyTavern 未提供正式的 World Info 扫描接口。');
+        }
+        setExtensionPrompt(WORLD_SCAN_SLOT, String(scanSeed ?? ''), extension_prompt_types.NONE, 0, true, extension_prompt_roles.SYSTEM);
+        try {
+            const chatForScan = (Array.isArray(context.chat) ? context.chat : [])
+                .map(message => String(message?.mes ?? ''))
+                .reverse();
+            const result = await context.getWorldInfoPrompt(chatForScan, Number(context.maxContext), true);
+            if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('世界书扫描期间聊天已切换。');
+            const activated = String(result?.worldInfoString ?? '').trim();
+            if (!activated) throw new Error('当前世界书没有激活与结果相关的条目；请补充地点、人物或组织关键词后重试。');
+            if (activated.length > MAX_AUTHORING_WORLD_INFO_CHARS) {
+                throw new Error('本次原生世界书结果过长；请降低世界书的原生上下文预算后重试。');
+            }
+            return activated;
+        } finally {
+            setExtensionPrompt(WORLD_SCAN_SLOT, '', extension_prompt_types.NONE, 0, true, extension_prompt_roles.SYSTEM);
+        }
     }
 
     async saveCurrentChat(expectedIdentity) {

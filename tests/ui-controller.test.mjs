@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DirectorUi, campaignInputFromFormData, customScenarioInputFromFormData } from '../src/ui/controller.js';
+import { DirectorUi, campaignInputFromFormData, customScenarioInputFromFormData, worldInfoScenarioInputFromFormData } from '../src/ui/controller.js';
 
 class FakeApplication {
     constructor() {
@@ -20,6 +20,7 @@ class FakeApplication {
     async importScenario(input) { this.calls.push(['importScenario', input]); }
     async importSave(input) { this.calls.push(['importSave', input]); }
     async writeCustomScenario(input) { this.calls.push(['writeCustomScenario', input]); return { id: 'written-story', title: input.title }; }
+    async writeScenarioFromWorldInfo(input) { this.calls.push(['writeScenarioFromWorldInfo', input]); return { id: 'world-story', title: input.title }; }
     exportSave() { this.calls.push(['exportSave']); return { format: 'save' }; }
     setEnabled(enabled) { this.calls.push(['setEnabled', enabled]); }
 }
@@ -76,6 +77,19 @@ test('custom scenario form parser keeps only the authored brief fields', () => {
         npcGoals: '乘务长想带所有人离开。',
         timePressure: '氧气会持续下降。',
         endings: '找回列车、牺牲返航或留在月背。',
+    });
+});
+
+test('world info form parser keeps only desired outcome and native scan anchors', () => {
+    const form = new FormData();
+    form.set('title', ' 雾港最后一道潮门 ');
+    form.set('outcome', ' 在零点前决定洪水流向。 ');
+    form.set('anchors', ' 雾港, 潮门, 旧港 ');
+    form.set('hidden', 'must not cross the UI boundary');
+    assert.deepEqual(worldInfoScenarioInputFromFormData(form), {
+        title: '雾港最后一道潮门',
+        outcome: '在零点前决定洪水流向。',
+        anchors: '雾港, 潮门, 旧港',
     });
 });
 

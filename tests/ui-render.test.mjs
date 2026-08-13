@@ -62,6 +62,21 @@ test('custom scenario authoring is a focused creative brief, not a raw schema ed
     assert.doesNotMatch(html, /name="schema"|name="secrets"|name="scenes"/);
 });
 
+test('world info authoring asks for a desired outcome and optional scan anchors only', () => {
+    const html = renderPanel({
+        viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' },
+        screen: 'world-authoring',
+        worldAuthoringDraft: { outcome: '在零点前决定潮门去向。', anchors: '雾港, 潮门' },
+    });
+    assert.match(html, /告诉世界，你想让故事走到哪里/);
+    assert.match(html, /data-form="write-world-info-scenario"/);
+    assert.match(html, /name="outcome"/);
+    assert.match(html, /name="anchors"/);
+    assert.match(html, /按世界书写成剧本/);
+    assert.match(html, /在零点前决定潮门去向/);
+    assert.doesNotMatch(html, /name="secrets"|name="scenes"/);
+});
+
 test('player setup collects relationship and a unique +2 +1 +0 allocation', () => {
     const html = renderPanel({ viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' }, screen: 'player', scenarios: [scenario], selectedScenarioId: scenario.id });
     assert.match(html, /name="playerRelationship"/);

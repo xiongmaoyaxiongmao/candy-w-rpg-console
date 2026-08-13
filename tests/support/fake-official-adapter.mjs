@@ -24,6 +24,8 @@ export class FakeOfficialAdapter {
         this.rawDecisions = [];
         this.rawPrompts = [];
         this.rawRequestOptions = [];
+        this.nativeWorldInfoRequests = [];
+        this.nativeWorldInfo = '雾港海关门坐落在旧港与仓区之间。潮门将决定洪水的去向。';
         this.generationRequests = [];
         this.saveCount = 0;
         this.stageCount = 0;
@@ -140,6 +142,15 @@ export class FakeOfficialAdapter {
     clearDirectorPrompts() {
         this.prompts = null;
         this.clearCount += 1;
+    }
+
+    async collectNativeWorldInfo(scanSeed, expectedIdentity) {
+        if (!sameIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('fake identity changed before world info scan');
+        this.nativeWorldInfoRequests.push({ scanSeed: String(scanSeed), expectedIdentity: clone(expectedIdentity) });
+        if (this.nativeWorldInfo instanceof Error) throw this.nativeWorldInfo;
+        const result = String(this.nativeWorldInfo).trim();
+        if (!result) throw new Error('当前世界书没有激活与结果相关的条目；请补充地点、人物或组织关键词后重试。');
+        return result;
     }
 
     async saveCurrentChat(expectedIdentity) {

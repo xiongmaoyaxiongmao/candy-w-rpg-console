@@ -581,3 +581,41 @@ test('an invalid custom writing result is rejected without adding a scenario', a
     assert.deepEqual(harness.adapter.getSettings().importedScenarios, []);
     await harness.app.destroy();
 });
+
+test('an activated native World Info result plus the requested outcome becomes a saved scenario', async () => {
+    const harness = makeHarness();
+    harness.adapter.nativeWorldInfo = '雾港海关门坐落在旧港与仓区之间。潮门决定洪水的去向。';
+    const draft = structuredClone(FOG_HARBOR_SCENARIO);
+    delete draft.hash;
+    draft.id = 'fog-harbor-last-gate';
+    draft.contentVersion = '1.0.0';
+    draft.public.title = '雾港最后一道潮门';
+    harness.adapter.enqueueRaw(JSON.stringify(draft));
+
+    const scenario = await harness.app.writeScenarioFromWorldInfo({
+        title: '雾港最后一道潮门',
+        outcome: '让玩家在零点前发现潮门真相，并决定洪水最终流向。',
+        anchors: '雾港, 潮门, 旧港',
+    });
+
+    assert.equal(scenario.id, 'fog-harbor-last-gate');
+    assert.equal(harness.adapter.nativeWorldInfoRequests.length, 1);
+    assert.match(harness.adapter.nativeWorldInfoRequests[0].scanSeed, /潮门/u);
+    assert.match(harness.adapter.rawPrompts[0], /雾港海关门/u);
+    assert.match(harness.adapter.rawPrompts[0], /洪水最终流向/u);
+    assert.equal(harness.adapter.currentMessages().length, 0);
+    assert.equal(harness.adapter.getSettings().importedScenarios[0].id, 'fog-harbor-last-gate');
+    await harness.app.destroy();
+});
+
+test('empty native World Info results fail before any script-writing generation begins', async () => {
+    const harness = makeHarness();
+    harness.adapter.nativeWorldInfo = '';
+    await assert.rejects(
+        harness.app.writeScenarioFromWorldInfo({ title: '', outcome: '让城市在黎明前做出选择。', anchors: '港口' }),
+        /世界书/u,
+    );
+    assert.equal(harness.adapter.rawPrompts.length, 0);
+    assert.deepEqual(harness.adapter.getSettings().importedScenarios, []);
+    await harness.app.destroy();
+});

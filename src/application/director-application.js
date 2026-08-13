@@ -22,10 +22,12 @@ import {
 import { compileWorldInfoScanSeed } from '../compilation/index.js';
 import {
     buildCustomScenarioPrompt,
+    buildWorldInfoScenarioPrompt,
     buildActionDecisionPrompt,
     buildPerformanceDirective,
     parseAndFinalizeCustomScenario,
     parseAndValidateActionDecision,
+    assertWorldInfoScenarioRequest,
     validatePerformanceMessage,
 } from '../protocol/index.js';
 import { createRuntimeState } from '../persistence/per-chat-repository.js';
@@ -772,6 +774,27 @@ export class DirectorApplication {
         const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
         this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
         this.#emit('scenario-written');
+        return publicScenario(scenario);
+    }
+
+    async writeScenarioFromWorldInfo(input) {
+        const identity = this.#requireSingle();
+        const { state } = this.#loadPair();
+        if (state?.phase === 'generating' || this.activeTransactionId || this.activeUnderstanding || this.adapter.generationStatus?.().active) {
+            throw new Error('当前连接仍在生成中；请等待这一轮结束后再编写新剧本。');
+        }
+        const request = assertWorldInfoScenarioRequest(input);
+        const scanSeed = compileWorldInfoScanSeed([request.title, request.outcome, request.anchors].filter(Boolean));
+        const nativeWorldInfo = await this.adapter.collectNativeWorldInfo(scanSeed, identity);
+        this.#assertMayContinue(identity, '世界书扫描');
+        const raw = await this.adapter.generateRawText(buildWorldInfoScenarioPrompt(request, nativeWorldInfo), identity, { responseLength: 8_000 });
+        this.#assertMayContinue(identity, '剧本编写');
+        const scenario = parseAndFinalizeCustomScenario(raw);
+        this.#registerScenario(scenario);
+        const settings = this.adapter.getSettings();
+        const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
+        this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
+        this.#emit('world-info-scenario-written');
         return publicScenario(scenario);
     }
 
