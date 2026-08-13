@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DirectorUi, campaignInputFromFormData } from '../src/ui/controller.js';
+import { DirectorUi, campaignInputFromFormData, customScenarioInputFromFormData } from '../src/ui/controller.js';
 
 class FakeApplication {
     constructor() {
@@ -19,6 +19,7 @@ class FakeApplication {
     async endCampaign() { this.calls.push(['endCampaign']); }
     async importScenario(input) { this.calls.push(['importScenario', input]); }
     async importSave(input) { this.calls.push(['importSave', input]); }
+    async writeCustomScenario(input) { this.calls.push(['writeCustomScenario', input]); return { id: 'written-story', title: input.title }; }
     exportSave() { this.calls.push(['exportSave']); return { format: 'save' }; }
     setEnabled(enabled) { this.calls.push(['setEnabled', enabled]); }
 }
@@ -51,6 +52,31 @@ test('campaign form parser rejects duplicate attribute values', () => {
     form.set('attributeInsight', '2');
     form.set('attributeRapport', '0');
     assert.throws(() => campaignInputFromFormData(form), /各分配一次/);
+});
+
+test('custom scenario form parser keeps only the authored brief fields', () => {
+    const form = new FormData();
+    form.set('title', ' 月背列车失踪案 ');
+    form.set('premise', ' 失踪案从终点站开始。 ');
+    form.set('tone', ' 温柔惊悚 ');
+    form.set('setting', ' 月背列车与废弃站台 ');
+    form.set('opening', ' 列车在无名站停车。 ');
+    form.set('coreTruth', ' 有人篡改了列车的返航协议。 ');
+    form.set('npcGoals', ' 乘务长想带所有人离开。 ');
+    form.set('timePressure', ' 氧气会持续下降。 ');
+    form.set('endings', ' 找回列车、牺牲返航或留在月背。 ');
+    form.set('unrelated', 'must not cross the UI boundary');
+    assert.deepEqual(customScenarioInputFromFormData(form), {
+        title: '月背列车失踪案',
+        premise: '失踪案从终点站开始。',
+        tone: '温柔惊悚',
+        setting: '月背列车与废弃站台',
+        opening: '列车在无名站停车。',
+        coreTruth: '有人篡改了列车的返航协议。',
+        npcGoals: '乘务长想带所有人离开。',
+        timePressure: '氧气会持续下降。',
+        endings: '找回列车、牺牲返航或留在月背。',
+    });
 });
 
 test('controller invokes only the application command contract', async () => {

@@ -47,6 +47,21 @@ test('welcome and scenario selection describe entering a story without future sp
     assert.match(library, /雾港末班车/);
 });
 
+test('custom scenario authoring is a focused creative brief, not a raw schema editor', () => {
+    const html = renderPanel({
+        viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' },
+        screen: 'authoring',
+        authoringDraft: { title: '月背列车失踪案', premise: '失踪案从终点站开始。' },
+    });
+    assert.match(html, /把你想走进的世界写下来/);
+    assert.match(html, /data-form="write-custom-scenario"/);
+    assert.match(html, /name="coreTruth"/);
+    assert.match(html, /name="timePressure"/);
+    assert.match(html, /写成可玩剧本/);
+    assert.match(html, /月背列车失踪案/);
+    assert.doesNotMatch(html, /name="schema"|name="secrets"|name="scenes"/);
+});
+
 test('player setup collects relationship and a unique +2 +1 +0 allocation', () => {
     const html = renderPanel({ viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' }, screen: 'player', scenarios: [scenario], selectedScenarioId: scenario.id });
     assert.match(html, /name="playerRelationship"/);

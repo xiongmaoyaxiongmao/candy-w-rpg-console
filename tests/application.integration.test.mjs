@@ -531,3 +531,53 @@ test('a second user send is refused while one transaction is performing, and too
     assert.equal(harness.repository.load().revision, 1);
     await harness.app.destroy();
 });
+
+test('a custom creative brief becomes a saved strict scenario without touching chat history', async () => {
+    const harness = makeHarness();
+    const draft = structuredClone(FOG_HARBOR_SCENARIO);
+    delete draft.hash;
+    draft.id = 'moon-train-missing';
+    draft.contentVersion = '1.0.0';
+    draft.public.title = '月背列车失踪案';
+    draft.public.tagline = '返程记录消失在月亮背面。';
+    draft.public.summary = '一列月背列车停在无名站，失踪者留下了返航线索。';
+    draft.public.tone = '温柔惊悚';
+    draft.public.duration = '约 2 小时';
+    draft.public.symbol = '◐';
+    draft.public.tags = ['月背', '列车'];
+    harness.adapter.enqueueRaw(JSON.stringify(draft));
+
+    const scenario = await harness.app.writeCustomScenario({
+        title: '月背列车失踪案',
+        premise: '一列月背列车在无名站停下，玩家需要找到失踪者。',
+        tone: '温柔惊悚',
+        setting: '月背列车与无名站。',
+        opening: '列车在没有站名的站台停靠。',
+        coreTruth: '返航协议被人为篡改，风暴不会等待。',
+        npcGoals: '乘务长想带所有乘客返航，工程师留下了线索。',
+        timePressure: '氧气和风暴会持续推进。',
+        endings: '修复返航、带部分人离开或留在月背。',
+    });
+
+    assert.equal(scenario.id, 'moon-train-missing');
+    assert.equal(harness.adapter.rawRequestOptions[0].responseLength, 8_000);
+    assert.match(harness.adapter.rawPrompts[0], /Candy W 跑团的剧本作者/u);
+    assert.equal(harness.adapter.currentMessages().length, 0, 'writing a scenario must not alter the current chat');
+    assert.equal(harness.adapter.getSettings().importedScenarios[0].id, 'moon-train-missing');
+    assert.ok(harness.app.listScenarios().some(item => item.id === 'moon-train-missing'));
+    await harness.app.destroy();
+});
+
+test('an invalid custom writing result is rejected without adding a scenario', async () => {
+    const harness = makeHarness();
+    harness.adapter.enqueueRaw('这不是严格 JSON。');
+    await assert.rejects(
+        harness.app.writeCustomScenario({
+            title: '月背列车失踪案', premise: '失踪案从终点站开始。', tone: '', setting: '月背列车。', opening: '列车停下。',
+            coreTruth: '返航协议被篡改。', npcGoals: '乘务长要返航。', timePressure: '风暴逼近。', endings: '返航或留下。',
+        }),
+        /单一、严格的 JSON/u,
+    );
+    assert.deepEqual(harness.adapter.getSettings().importedScenarios, []);
+    await harness.app.destroy();
+});

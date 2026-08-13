@@ -23,6 +23,7 @@ export class FakeOfficialAdapter {
         this.promptsByChat = new Map();
         this.rawDecisions = [];
         this.rawPrompts = [];
+        this.rawRequestOptions = [];
         this.generationRequests = [];
         this.saveCount = 0;
         this.stageCount = 0;
@@ -164,10 +165,11 @@ export class FakeOfficialAdapter {
 
     enqueueRaw(value) { this.rawDecisions.push(value); }
 
-    async generateRawText(prompt, expectedIdentity) {
+    async generateRawText(prompt, expectedIdentity, options = {}) {
         if (!sameIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('fake identity changed during raw generation');
         this.ownedGenerationCancelled = false;
         this.rawPrompts.push(String(prompt));
+        this.rawRequestOptions.push(clone(options));
         if (!this.connected) throw new Error('fake disconnected');
         if (this.rawDecisions.length === 0) throw new Error('fake raw decision queue is empty');
         const queued = this.rawDecisions.shift();

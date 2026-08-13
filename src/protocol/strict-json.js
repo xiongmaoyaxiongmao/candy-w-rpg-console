@@ -1,7 +1,7 @@
 import { fail, isPlainRecord } from './validation.js';
 
 const CODE = 'INVALID_ACTION_DECISION';
-const MAX_JSON_CHARS = 8192;
+const MAX_JSON_CHARS = 120_000;
 const MAX_DEPTH = 16;
 
 function malformed() {

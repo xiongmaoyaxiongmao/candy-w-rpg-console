@@ -207,7 +207,7 @@ function renderWelcome() {
         <p class="cw-eyebrow">Candy W · 单人故事</p>
         <h2>故事已经写好。<br>等你走进去。</h2>
         <p class="cw-hero__copy">你只需要扮演自己。幕后导演记得秘密、时间与每个人真正想要什么，当前角色会把发生的一切演给你看。</p>
-        <div class="cw-stack">${button('选择一个故事', 'show-scenarios', { icon: 'compass' })}${button('继续保存的旅程', 'import-save', { className: 'cw-button cw-button--secondary', icon: 'book' })}</div>
+        <div class="cw-stack">${button('选择一个故事', 'show-scenarios', { icon: 'compass' })}${button('写一个自己的故事', 'show-authoring', { className: 'cw-button cw-button--secondary', icon: 'spark' })}${button('继续保存的旅程', 'import-save', { className: 'cw-button cw-button--secondary', icon: 'book' })}</div>
         <button type="button" class="cw-text-button" data-action="import-scenario">导入剧本包</button>
     </section>`;
 }
@@ -216,7 +216,29 @@ function renderScenarioLibrary(scenarios, selectedScenarioId) {
     return `<section class="cw-page cw-scenario-library">
         <div class="cw-page-heading"><p class="cw-eyebrow">选择剧本</p><h2>你想走进哪个世界？</h2><p>这里只有开场前能知道的事。未来、秘密与结局仍在幕后。</p></div>
         <div class="cw-scenario-list">${scenarios.length ? scenarios.map(scenario => renderScenarioCard(scenario, scenario.id === selectedScenarioId)).join('') : emptyState('还没有可进入的剧本。你可以导入一个严格校验的剧本包。')}</div>
-        <div class="cw-bottom-actions">${button('导入剧本包', 'import-scenario', { className: 'cw-button cw-button--secondary' })}<button type="button" class="cw-text-button" data-action="back-welcome">返回</button></div>
+        <div class="cw-bottom-actions">${button('写一个自己的故事', 'show-authoring', { className: 'cw-button cw-button--secondary', icon: 'spark' })}${button('导入剧本包', 'import-scenario', { className: 'cw-button cw-button--secondary' })}<button type="button" class="cw-text-button" data-action="back-welcome">返回</button></div>
+    </section>`;
+}
+
+function renderScenarioAuthoring(draft) {
+    const value = name => escapeHtml(string(draft?.[name]));
+    const field = (name, label, placeholder, rows = 3, optional = false) => `<label><span>${label}${optional ? ' <small>可选</small>' : ''}</span><textarea name="${name}" maxlength="${name === 'premise' ? 1600 : name === 'npcGoals' ? 1400 : name === 'coreTruth' || name === 'endings' ? 1200 : name === 'opening' ? 900 : name === 'setting' || name === 'timePressure' ? 600 : 120}" rows="${rows}" placeholder="${escapeHtml(placeholder)}"${optional ? '' : ' required'}>${value(name)}</textarea></label>`;
+    return `<section class="cw-page cw-scenario-authoring">
+        <div class="cw-page-heading"><p class="cw-eyebrow">自定义剧本</p><h2>把你想走进的世界写下来。</h2><p>你写下故事的硬边界与方向；当前连接的模型会把它编成完整、可分支、带秘密和时钟的导演剧本。未通过严格校验就不会保存。</p></div>
+        <form class="cw-form" data-form="write-custom-scenario">
+            <label><span>剧本名称</span><input name="title" maxlength="120" autocomplete="off" required value="${value('title')}" placeholder="例如：月背列车失踪案"></label>
+            ${field('premise', '故事设想', '主角为何踏入这个世界？冲突从哪里开始？', 4)}
+            ${field('tone', '氛围与题材', '例如：近未来悬疑、温柔惊悚、古风权谋', 2, true)}
+            ${field('setting', '舞台与地点', '故事主要发生在哪里？有哪些关键地点？', 3)}
+            ${field('opening', '开场画面', '玩家进入聊天后，最先遇见的人、事或危机。', 3)}
+            ${field('coreTruth', '不可改写的真相', '即使玩家绕路也不会改变的核心事实、幕后规则或灾难。', 4)}
+            ${field('npcGoals', '关键人物与目的', '写出人物、彼此关系、各自想得到什么，以及至少一个隐藏目的。', 4)}
+            ${field('timePressure', '时间压力', '什么事件会按时间自动推进？拖延会带来什么可感知的代价？', 3)}
+            ${field('endings', '分支与结局方向', '玩家的决定可以怎样改变过程与结局？至少写两种不同去向。', 4)}
+            <p class="cw-form-note">编写不会把草稿、秘密或结果写入聊天正文；只有校验通过的剧本会加入当前设备的剧本库。</p>
+            ${button('写成可玩剧本', 'submit-custom-scenario', { icon: 'spark' })}
+        </form>
+        <button type="button" class="cw-text-button" data-action="back-scenarios">返回剧本库</button>
     </section>`;
 }
 
@@ -346,7 +368,7 @@ function renderHostBoundary(view) {
     return '';
 }
 
-export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_LIST, selectedScenarioId = '', activeTab = 'now', localError = '', busyAction = '' }) {
+export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_LIST, selectedScenarioId = '', activeTab = 'now', localError = '', busyAction = '', authoringDraft = {} }) {
     const view = normalizeViewModel(viewModel);
     const normalizedScenarios = scenarios.map(normalizeScenario);
     const selectedScenario = normalizedScenarios.find(scenario => scenario.id === selectedScenarioId) ?? normalizedScenarios[0] ?? normalizeScenario({});
@@ -355,6 +377,7 @@ export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_L
     if (!content) {
         if (view.phase === 'empty') {
             if (screen === 'scenarios') content = renderScenarioLibrary(normalizedScenarios, selectedScenarioId);
+            else if (screen === 'authoring') content = renderScenarioAuthoring(authoringDraft);
             else if (screen === 'player') content = renderPlayerSetup(selectedScenario);
             else content = renderWelcome();
         } else if (view.phase === 'ready') content = renderWorldGate(view);

@@ -21,8 +21,10 @@ import {
 } from '../io/index.js';
 import { compileWorldInfoScanSeed } from '../compilation/index.js';
 import {
+    buildCustomScenarioPrompt,
     buildActionDecisionPrompt,
     buildPerformanceDirective,
+    parseAndFinalizeCustomScenario,
     parseAndValidateActionDecision,
     validatePerformanceMessage,
 } from '../protocol/index.js';
@@ -750,6 +752,26 @@ export class DirectorApplication {
         const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
         this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
         this.#emit('scenario-imported');
+        return publicScenario(scenario);
+    }
+
+    async writeCustomScenario(brief) {
+        const identity = this.#requireSingle();
+        const { state } = this.#loadPair();
+        if (state?.phase === 'generating' || this.activeTransactionId || this.activeUnderstanding) {
+            throw new Error('当前旅程仍在生成中；请等待这一轮结束后再编写新剧本。');
+        }
+        if (this.adapter.generationStatus?.().active) {
+            throw new Error('当前连接正在生成；请等待这一轮结束后再编写新剧本。');
+        }
+        const raw = await this.adapter.generateRawText(buildCustomScenarioPrompt(brief), identity, { responseLength: 8_000 });
+        this.#assertMayContinue(identity, '剧本编写');
+        const scenario = parseAndFinalizeCustomScenario(raw);
+        this.#registerScenario(scenario);
+        const settings = this.adapter.getSettings();
+        const imported = (settings.importedScenarios ?? []).filter(item => item.id !== scenario.id);
+        this.adapter.saveSettings({ ...settings, importedScenarios: [...imported, clone(scenario)] });
+        this.#emit('scenario-written');
         return publicScenario(scenario);
     }
 

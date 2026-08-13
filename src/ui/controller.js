@@ -10,6 +10,9 @@ import {
 
 const JSON_FILE_LIMIT = 2 * 1024 * 1024;
 const FLOATING_TOGGLE_INSET = 12;
+const CUSTOM_SCENARIO_FIELDS = Object.freeze([
+    'title', 'premise', 'tone', 'setting', 'opening', 'coreTruth', 'npcGoals', 'timePressure', 'endings',
+]);
 
 function messageOf(error) {
     return error instanceof Error ? error.message : String(error ?? '未知错误');
@@ -63,6 +66,10 @@ export function campaignInputFromFormData(formData, fallbackScenarioId = '') {
     };
 }
 
+export function customScenarioInputFromFormData(formData) {
+    return Object.fromEntries(CUSTOM_SCENARIO_FIELDS.map(field => [field, String(formData.get(field) ?? '').trim()]));
+}
+
 export class DirectorUi {
     constructor(application) {
         if (!application || typeof application.getViewModel !== 'function' || typeof application.subscribe !== 'function') throw new Error('DirectorUi 需要完整的 application 接口。');
@@ -72,6 +79,7 @@ export class DirectorUi {
         this.activeTab = 'now';
         this.scenarios = [];
         this.selectedScenarioId = '';
+        this.authoringDraft = Object.fromEntries(CUSTOM_SCENARIO_FIELDS.map(field => [field, '']));
         this.localError = '';
         this.busyAction = '';
         this.toggle = null;
@@ -94,6 +102,7 @@ export class DirectorUi {
         this.onTogglePointerUp = event => this.handleTogglePointerUp(event);
         this.onTogglePointerCancel = event => this.handleTogglePointerCancel(event);
         this.onViewportChange = () => this.restoreFloatingTogglePosition();
+        this.onPanelInput = event => this.captureAuthoringDraft(event);
     }
 
     mount() {
@@ -121,6 +130,7 @@ export class DirectorUi {
         this.panel.addEventListener('click', event => void this.handleClick(event));
         this.panel.addEventListener('submit', event => void this.handleSubmit(event));
         this.panel.addEventListener('change', event => void this.handleFileChange(event));
+        this.panel.addEventListener('input', this.onPanelInput);
         document.body.append(this.panel);
         document.addEventListener('keydown', this.onKeydown);
         window.addEventListener('resize', this.onViewportChange, { passive: true });
@@ -205,6 +215,7 @@ export class DirectorUi {
             activeTab: this.activeTab,
             localError: this.localError,
             busyAction: this.busyAction,
+            authoringDraft: this.authoringDraft,
         });
     }
 
@@ -342,6 +353,13 @@ export class DirectorUi {
         this.toggle?.classList.remove('is-dragging');
     }
 
+    captureAuthoringDraft(event) {
+        const target = event.target;
+        const form = target?.closest?.('[data-form="write-custom-scenario"]');
+        if (!form || !CUSTOM_SCENARIO_FIELDS.includes(target.name)) return;
+        this.authoringDraft = { ...this.authoringDraft, [target.name]: String(target.value ?? '') };
+    }
+
     async run(action, operation) {
         if (this.busyAction) return;
         this.busyAction = action;
@@ -370,6 +388,7 @@ export class DirectorUi {
         }
         if (action === 'back-welcome') { this.screen = 'welcome'; this.render(); return; }
         if (action === 'back-scenarios') { this.screen = 'scenarios'; this.render(); return; }
+        if (action === 'show-authoring') { this.screen = 'authoring'; this.render(); return; }
         if (action === 'select-scenario') {
             this.selectedScenarioId = String(data.scenarioId ?? '');
             this.screen = 'player';
@@ -399,7 +418,7 @@ export class DirectorUi {
     async handleClick(event) {
         const target = event.target.closest('[data-action]');
         if (!target || target.disabled) return;
-        if (target.dataset.action === 'submit-create') {
+        if (target.dataset.action === 'submit-create' || target.dataset.action === 'submit-custom-scenario') {
             target.closest('form')?.requestSubmit();
             return;
         }
@@ -409,6 +428,17 @@ export class DirectorUi {
     async handleSubmit(event) {
         event.preventDefault();
         const form = event.target;
+        if (form.dataset.form === 'write-custom-scenario') {
+            const input = customScenarioInputFromFormData(new FormData(form));
+            this.authoringDraft = input;
+            await this.run('write-custom-scenario', async () => {
+                const scenario = await this.app.writeCustomScenario(input);
+                this.selectedScenarioId = String(scenario.id ?? '');
+                await this.refreshScenarios();
+                this.screen = 'player';
+            });
+            return;
+        }
         if (form.dataset.form !== 'create-campaign') return;
         const formData = new FormData(form);
         let input;

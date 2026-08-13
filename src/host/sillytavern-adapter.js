@@ -159,12 +159,15 @@ export class SillyTavernAdapter {
         return true;
     }
 
-    async generateRawText(prompt, expectedIdentity) {
+    async generateRawText(prompt, expectedIdentity, { responseLength = 700 } = {}) {
         if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('行动理解前聊天已切换。');
         if (!this.isConnected()) throw new Error('当前 SillyTavern 尚未连接模型。');
         const generateRaw = this.currentContext()?.generateRaw;
         if (typeof generateRaw !== 'function') throw new Error('SillyTavern 未提供正式的 generateRaw 接口。');
-        const result = await generateRaw({ prompt, responseLength: 700, trimNames: false });
+        if (!Number.isSafeInteger(responseLength) || responseLength < 1 || responseLength > 12_000) {
+            throw new Error('原始文本请求长度必须是 1 到 12000 的整数。');
+        }
+        const result = await generateRaw({ prompt, responseLength, trimNames: false });
         if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('行动理解期间聊天已切换。');
         return String(result ?? '');
     }
