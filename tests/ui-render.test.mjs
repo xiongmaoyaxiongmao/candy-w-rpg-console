@@ -72,6 +72,8 @@ test('world info authoring asks for a desired outcome and optional scan anchors 
     assert.match(html, /data-form="write-world-info-scenario"/);
     assert.match(html, /name="outcome"/);
     assert.match(html, /name="anchors"/);
+    assert.match(html, /蓝色扫描词/);
+    assert.match(html, /绿色命中的条目/);
     assert.match(html, /按世界书写成剧本/);
     assert.match(html, /在零点前决定潮门去向/);
     assert.doesNotMatch(html, /name="secrets"|name="scenes"/);

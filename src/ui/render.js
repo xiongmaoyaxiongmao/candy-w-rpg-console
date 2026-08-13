@@ -249,8 +249,8 @@ function renderWorldInfoScenarioAuthoring(draft) {
         <form class="cw-form" data-form="write-world-info-scenario">
             <label><span>剧本名称 <small>可选</small></span><input name="title" maxlength="120" autocomplete="off" value="${value('title')}" placeholder="不写也可以，让故事自己取名"></label>
             <label><span>你想要的结果</span><textarea name="outcome" maxlength="1600" rows="5" required placeholder="例如：让主角发现王位继承真相，并在战争爆发前决定把王冠交给谁。">${value('outcome')}</textarea></label>
-            <label><span>世界书关键词 <small>可选</small></span><textarea name="anchors" maxlength="600" rows="3" placeholder="人物、地点、组织或物件；用逗号或换行分隔，例如：王城，王冠，黎明军">${value('anchors')}</textarea></label>
-            <p class="cw-form-note">如果当前世界书没有激活相关条目，系统会停下提示你补充关键词；不会用整本世界书硬塞进剧本。</p>
+            <label><span>蓝色扫描词 <small>可选</small></span><textarea name="anchors" maxlength="600" rows="3" placeholder="只用来触发扫描；填人物、地点、组织或物件，例如：王城，王冠，黎明军">${value('anchors')}</textarea></label>
+            <p class="cw-form-note">蓝色扫描词只负责触发原生世界书扫描；绿色命中的条目才会作为世界事实交给编剧。没有命中时，系统会提示你补充扫描词，不会用整本世界书硬塞进剧本。</p>
             ${button('按世界书写成剧本', 'submit-world-info-scenario', { icon: 'book' })}
         </form>
         <button type="button" class="cw-text-button" data-action="back-scenarios">返回剧本库</button>
