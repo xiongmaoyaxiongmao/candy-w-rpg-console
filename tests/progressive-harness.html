@@ -1,0 +1,14 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>导演分阶段接入 · 隔离验证</title><link rel="stylesheet" href="/style.css"><style>:root{--SmartThemeBodyColor:#303036;--SmartThemeBlurTintColor:#f6f5f0}body{margin:0;background:#eceae4;font-family:system-ui}</style></head><body><script type="module">
+import {DirectorApplication} from '/src/application/index.js';
+import {validateDirectorState,validateScenario} from '/src/domain/index.js';
+import {PerChatRepository} from '/src/persistence/per-chat-repository.js';
+import {FakeOfficialAdapter} from '/tests/support/fake-official-adapter.mjs';
+import {DirectorUi} from '/src/ui/controller.js';
+const adapter=new FakeOfficialAdapter();adapter.selectSingle('isolated.png','progressive');const key='progressive-harness';const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved){adapter.settings=saved.settings;Object.assign(adapter.currentChatMetadata(),saved.metadata);adapter.seedMessages(saved.messages);}
+const save=()=>localStorage.setItem(key,JSON.stringify({settings:adapter.settings,metadata:adapter.currentChatMetadata(),messages:adapter.currentMessages()}));const originalSave=adapter.saveCurrentChat.bind(adapter);adapter.saveCurrentChat=async(...args)=>{await originalSave(...args);save();};adapter.persistApiSettings=async next=>{adapter.settings=structuredClone(next);save();};
+const repository=new PerChatRepository({adapter,validateState:validateDirectorState,validateScenario});const app=new DirectorApplication({adapter,repository}).start();
+if(!repository.load()){await app.createCampaign({scenarioId:app.listScenarios()[0].id,player:{name:'旅行者',concept:'',relationship:'旧友',attributes:{body:2,insight:1,rapport:0}}});await app.enterWorld();await adapter.completeGeneration('我们站在港口入口，准备行动。');}
+const ui=new DirectorUi(app).mount();ui.show();
+window.advanceQa=async()=>{adapter.appendUser('去档案室。');adapter.enqueueDecision('gate_to_office');await adapter.completeGeneration('我们走到档案室。');save();return {scene:repository.load().hidden.currentSceneId,entry:repository.load().hidden.occurredFacts.includes('entered_port_office')};};
+window.readQa=()=>({scene:repository.load().hidden.currentSceneId,entry:repository.load().hidden.occurredFacts.includes('entered_port_office')});
+</script></body></html>

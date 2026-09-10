@@ -1,3 +1,4 @@
+import { restoreArrivalFacts } from '../domain/scenario-context.js';
 import {
     analyzeScenarioGraph,
     assertScenario,
@@ -234,7 +235,7 @@ export function importSavePackage(input) {
     if (envelope.format !== SAVE_PACKAGE_FORMAT) fail('只接受 Candy W 导演 v2 存档；旧版或未知格式已拒绝。');
     assertExportedAt(envelope.exportedAt);
     const scenario = checkedScenario(envelope.scenario);
-    const state = checkedState(envelope.state);
+    const state = checkedState(restoreArrivalFacts(checkedState(envelope.state), scenario));
     assertMatchingScenario(scenario, state);
     assertPortableState(state);
     return { scenario, state };

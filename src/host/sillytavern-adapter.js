@@ -1,3 +1,7 @@
+import { getRegexedString, regex_placement } from '../../../../regex/engine.js';
+import { checkWorldInfo, world_info_position, DEFAULT_DEPTH } from '../../../../../world-info.js';
+import { AuxiliaryApiClient } from './auxiliary-api-client.js';
+import { readApiSettings } from '../protocol/api-settings.js';
 import { extension_settings, getContext } from '../../../../../extensions.js';
 import {
     eventSource,
@@ -6,6 +10,7 @@ import {
     extension_prompt_types,
     isGenerating,
     saveSettingsDebounced,
+    saveSettings as saveHostSettings,
     setExtensionPrompt,
 } from '../../../../../../script.js';
 
@@ -32,8 +37,28 @@ export function sameChatIdentity(left, right) {
 }
 
 export class SillyTavernAdapter {
+    auxiliaryClient() {
+        return this.apiClient ??= new AuxiliaryApiClient(() => this.currentContext());
+    }
+
+    testStructuredProfile(profile, prompt, schema) { return this.auxiliaryClient().structured(profile, prompt, schema, { responseLength: 4096 }); }
+    listApiModels(profile) { return this.auxiliaryClient().models(profile); }
+    cancelAuxiliaryRequests() { this.apiClient?.cancel(); }
+
+    async persistApiSettings(settings) {
+        const previous = extension_settings[EXTENSION_NAME];
+        extension_settings[EXTENSION_NAME] = clone(settings);
+        try { await saveHostSettings(); }
+        catch (error) { extension_settings[EXTENSION_NAME] = previous; throw error; }
+    }
+
     currentContext() {
         return getContext();
+    }
+
+    currentPersona() {
+        const context=this.currentContext();
+        return {name:String(context?.name1 ?? ''),description:String(context?.powerUserSettings?.persona_description ?? '')};
     }
 
     chatKind() {
@@ -143,7 +168,7 @@ export class SillyTavernAdapter {
     async collectNativeWorldInfo(scanSeed, expectedIdentity) {
         if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('世界书扫描前聊天已切换。');
         const context = this.currentContext();
-        if (typeof context?.getWorldInfoPrompt !== 'function') {
+        if (typeof checkWorldInfo !== 'function') {
             throw new Error('当前 SillyTavern 未提供正式的 World Info 扫描接口。');
         }
         setExtensionPrompt(WORLD_SCAN_SLOT, String(scanSeed ?? ''), extension_prompt_types.NONE, 0, true, extension_prompt_roles.SYSTEM);
@@ -151,11 +176,11 @@ export class SillyTavernAdapter {
             const chatForScan = (Array.isArray(context.chat) ? context.chat : [])
                 .map(message => String(message?.mes ?? ''))
                 .reverse();
-            const result = await context.getWorldInfoPrompt(chatForScan, Number(context.maxContext), true);
+            const result = await checkWorldInfo(chatForScan, Number(context.maxContext), true);
             if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('世界书扫描期间聊天已切换。');
-            const activated = String(result?.worldInfoString ?? '').trim();
-            if (!activated) throw new Error('当前世界书没有激活与结果相关的条目；请补充地点、人物或组织关键词后重试。');
-            if (activated.length > MAX_AUTHORING_WORLD_INFO_CHARS) {
+            const activated = [...(result?.allActivatedEntries ?? [])].map((entry, index) => ({ id: `world_${index}`, title: entry.comment || `世界资料 ${index + 1}`, keys: Array.isArray(entry.key) ? entry.key : [], content: getRegexedString(String(entry.content ?? ''), regex_placement.WORLD_INFO, { depth: entry.position === world_info_position.atDepth ? (entry.depth ?? DEFAULT_DEPTH) : null, isMarkdown: false, isPrompt: true }).trim(), origin: { world: entry.world ?? null, uid: entry.uid ?? null, position: entry.position ?? null } })).filter(entry => entry.content);
+            if (!activated.length) throw new Error('当前世界书没有激活与结果相关的条目；请补充地点、人物或组织关键词后重试。');
+            if (activated.reduce((size, entry) => size + entry.content.length, 0) > MAX_AUTHORING_WORLD_INFO_CHARS) {
                 throw new Error('本次原生世界书结果过长；请降低世界书的原生上下文预算后重试。');
             }
             return activated;
@@ -185,17 +210,14 @@ export class SillyTavernAdapter {
         return true;
     }
 
-    async generateRawText(prompt, expectedIdentity, { responseLength = 700 } = {}) {
-        if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('行动理解前聊天已切换。');
-        if (!this.isConnected()) throw new Error('当前 SillyTavern 尚未连接模型。');
-        const generateRaw = this.currentContext()?.generateRaw;
-        if (typeof generateRaw !== 'function') throw new Error('SillyTavern 未提供正式的 generateRaw 接口。');
-        if (!Number.isSafeInteger(responseLength) || responseLength < 1 || responseLength > 12_000) {
-            throw new Error('原始文本请求长度必须是 1 到 12000 的整数。');
-        }
-        const result = await generateRaw({ prompt, responseLength, trimNames: false });
-        if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('行动理解期间聊天已切换。');
-        return String(result ?? '');
+    async generateStructured(prompt, expectedIdentity, { schema, responseLength = 16000 } = {}) {
+        if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('请求前聊天已切换。');
+        const config = readApiSettings(this.getSettings());
+        const profile = config.profiles.find(item => item.id === config.directorProfileId);
+        if (!profile) throw new Error('请在导演 API 设置中选择独立直连接口。角色正文仍使用酒馆主 API。');
+        const result = await this.auxiliaryClient().structured(profile, prompt, schema, { responseLength });
+        if (!sameChatIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('请求期间聊天已切换。');
+        return result;
     }
 
     async requestAutomaticGeneration(expectedIdentity) {
@@ -209,6 +231,7 @@ export class SillyTavernAdapter {
     }
 
     stopOwnedGeneration() {
+        this.cancelAuxiliaryRequests();
         const stopGeneration = this.currentContext()?.stopGeneration;
         return typeof stopGeneration === 'function' ? Boolean(stopGeneration()) : false;
     }

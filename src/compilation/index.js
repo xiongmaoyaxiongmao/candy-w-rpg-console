@@ -3,4 +3,5 @@ export {
     DEFAULT_SCAN_SEED_MAX_ANCHORS,
     DEFAULT_SCAN_SEED_MAX_CHARS,
     compileWorldInfoScanSeed,
+    compileAuthoringWorldInfoScanSeed,
 } from './world-info-scan-seed.js';

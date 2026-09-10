@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>接口错误分类 · 隔离验证</title><link rel="stylesheet" href="/style.css"><style>body{background:#eceae4;font-family:system-ui}#receipt{white-space:pre-wrap;max-width:250px}</style></head><body><pre id="receipt"></pre><script type="module">
+import {DirectorApplication} from '/src/application/index.js';
+import {PerChatRepository} from '/src/persistence/per-chat-repository.js';
+import {validateDirectorState,validateScenario} from '/src/domain/index.js';
+import {FakeOfficialAdapter} from '/tests/support/fake-official-adapter.mjs';
+import {FOG_HARBOR_SCENARIO} from '/src/scenarios/index.js';
+import {finalizeScenario} from '/src/domain/scenario-schema.js';
+import {requestFailure} from '/src/host/request-failure.js';
+import {DirectorUi} from '/src/ui/controller.js';
+const adapter=new FakeOfficialAdapter();adapter.selectSingle('qa.png','network-qa');
+const d=structuredClone(FOG_HARBOR_SCENARIO);delete d.hash;d.id='network-qa';const scenario=finalizeScenario(d);adapter.settings.importedScenarios=[scenario];
+const repository=new PerChatRepository({adapter,validateState:validateDirectorState,validateScenario});const app=new DirectorApplication({adapter,repository}).start();
+const failure=requestFailure(new Error('request failed, reason: socket hang up'));
+const error=Object.assign(new Error(failure.message),{code:failure.code,diagnostic:{requestId:'isolated-reset-check',route:'隔离接口',model:'测试模型',finishReason:null,usage:{input:null,output:null},content:''}});adapter.enqueueRaw(error);
+try{await app.reviseScenario({id:scenario.id,expectedHash:scenario.hash,request:'将开场改为书店重逢。'});}catch{}
+const ui=new DirectorUi(app).mount();ui.show();
+document.querySelector('#receipt').textContent=JSON.stringify({testOnly:true,code:app.getAuthoringJob().diagnostic.code,originalUnchanged:adapter.settings.importedScenarios[0].hash===scenario.hash,attempts:adapter.rawPrompts.length,realRequests:0});
+</script></body></html>

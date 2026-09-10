@@ -1,0 +1,19 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>故事创作 · 隔离验收</title><link rel="stylesheet" href="/style.css"><style>body{margin:0;background:#eceae4;--SmartThemeBodyColor:#303036;--SmartThemeBlurTintColor:#f6f5f0;font-family:system-ui}#tools{padding:12px;max-width:270px}#tools button{padding:10px;display:block;margin:8px 0}#receipt{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}</style></head><body><nav id="tools"><strong>隔离验收 · 模拟模型</strong><button id="miss">模拟：世界书没有命中</button><button id="hit">模拟：世界书命中书店</button><button id="finish">完成开场演出</button><button id="reload">重新打开保存的聊天</button><pre id="receipt"></pre></nav><script type="module">
+import { DirectorApplication } from '/src/application/index.js';
+import { validateDirectorState, validateScenario, stateMatchesScenario } from '/src/domain/index.js';
+import { PerChatRepository } from '/src/persistence/per-chat-repository.js';
+import { FakeOfficialAdapter } from '/tests/support/fake-official-adapter.mjs';
+import { DirectorUi } from '/src/ui/controller.js';
+import { FOG_HARBOR_SCENARIO } from '/src/scenarios/index.js';
+if(new URLSearchParams(location.search).get('theme')==='light'){document.documentElement.style.setProperty('--SmartThemeBodyColor','#303036');document.documentElement.style.setProperty('--SmartThemeBlurTintColor','#f6f5f0');}
+const key='candy-story-qa-v1'+(new URLSearchParams(location.search).get('case')||''); const adapter=new FakeOfficialAdapter();adapter.selectSingle('qa-guide.png','story-qa');
+const saved=JSON.parse(localStorage.getItem(key)||'null'); if(saved){adapter.settings=saved.settings;Object.assign(adapter.currentChatMetadata(),saved.metadata);adapter.seedMessages(saved.messages);}
+const save=()=>localStorage.setItem(key,JSON.stringify({settings:adapter.settings,metadata:adapter.currentChatMetadata(),messages:adapter.currentMessages()}));
+const originalSave=adapter.saveCurrentChat.bind(adapter);adapter.saveCurrentChat=async(...args)=>{await originalSave(...args);save();};
+const saveSettings=adapter.saveSettings.bind(adapter);adapter.saveSettings=(...args)=>{saveSettings(...args);save();};
+adapter.nativeWorldInfo='临河书店坐落在东街，旧友是书店的管理者。';
+const draft=structuredClone(FOG_HARBOR_SCENARIO);delete draft.hash;draft.id='qa-bookshop';draft.public.title='重返临河书店';draft.public.tone='温柔、慢热';draft.public.summary='回到东街，与旧友重开书店。';const first=draft.scenes.find(s=>s.id===draft.startSceneId);first.title='雨停后的重逢';first.location='东街临河书店';first.timeLabel='午后';first.description='雨停后，旧友正在书店门口搬书，看见来人便停下手里的动作。';first.objective='与旧友重逢，决定如何整理书店。';adapter.enqueueScenario(draft);
+const repository=new PerChatRepository({adapter,validateState:validateDirectorState,validateScenario});const app=new DirectorApplication({adapter,repository}).start();const ui=new DirectorUi(app).mount();ui.show();
+const receipt=()=>{const state=repository.load();document.querySelector('#receipt').textContent=JSON.stringify({phase:state?.phase??'empty',version:'2.4.0',scans:adapter.nativeWorldInfoRequests.length,modelCalls:adapter.rawPrompts.length,worldCombined:adapter.rawPrompts.some(p=>p.includes('临河书店坐落在东街')),openingRetained:adapter.rawPrompts.some(p=>p.includes('雨停后')),savedScripts:adapter.settings.importedScenarios.length,pairValid:state?stateMatchesScenario(state,repository.loadScenario()):null,name:state?.player.name},null,2);};app.subscribe(receipt);receipt();
+document.querySelector('#miss').onclick=()=>{adapter.nativeWorldInfo='';};document.querySelector('#hit').onclick=()=>{adapter.nativeWorldInfo='临河书店坐落在东街，旧友是书店的管理者。';};document.querySelector('#finish').onclick=async()=>{await adapter.completeGeneration('雨后的屋檐仍在滴水。旧友停下搬书的动作，认出门口的你，轻轻喊了一声你的名字。书店还留着旧日的气味，接下来如何开口，由你决定。');save();receipt();};document.querySelector('#reload').onclick=()=>location.reload();
+</script></body></html>

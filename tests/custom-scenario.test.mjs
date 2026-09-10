@@ -2,13 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     assertCustomScenarioBrief,
-    assertScenarioRevisionRequest,
     assertWorldInfoScenarioRequest,
     buildCustomScenarioPrompt,
-    buildScenarioRevisionPrompt,
     buildWorldInfoScenarioPrompt,
     parseAndFinalizeCustomScenario,
-    parseAndFinalizeScenarioRevision,
 } from '../src/protocol/index.js';
 import { FOG_HARBOR_SCENARIO } from '../src/scenarios/index.js';
 
@@ -46,7 +43,8 @@ test('custom scenario brief is exact, bounded and becomes a model-neutral writin
     assert.match(prompt, /月背列车失踪案/);
     assert.doesNotMatch(prompt, /jsonSchema/iu);
     assert.throws(() => assertCustomScenarioBrief({ ...BRIEF, hidden: 'no' }), /未知字段/);
-    assert.throws(() => assertCustomScenarioBrief({ ...BRIEF, opening: ' ' }), /不能为空/);
+    assert.equal(assertCustomScenarioBrief({ ...BRIEF, opening: ' ' }).opening, '');
+    assert.throws(() => assertCustomScenarioBrief({ ...BRIEF, premise: ' ' }), /不能为空/);
 });
 
 test('world info writing uses only activated native facts and the requested outcome', () => {
@@ -64,37 +62,15 @@ test('world info writing uses only activated native facts and the requested outc
     assert.throws(() => buildWorldInfoScenarioPrompt(request, ' '), /不能为空/);
 });
 
-test('scenario revision preserves its stable identity while requiring a complete replacement graph', () => {
-    const original = parseAndFinalizeCustomScenario(JSON.stringify(validDraft()));
-    const request = { scenarioId: original.id, instruction: '让最终选择更偏向救援旧港。' };
-    const prompt = buildScenarioRevisionPrompt(request, original);
-    assert.match(prompt, /重写下方已有的完整导演剧本/);
-    assert.match(prompt, /让最终选择更偏向救援旧港/);
-    assert.throws(() => assertScenarioRevisionRequest({ ...request, hidden: 'no' }), /未知字段/);
-
-    const revised = validDraft();
-    revised.public.tagline = '潮门最后一次开启，选择将留下新的伤痕。';
-    const finalized = parseAndFinalizeScenarioRevision(JSON.stringify(revised), {
-        scenarioId: original.id,
-        contentVersion: original.contentVersion,
-    });
-    assert.equal(finalized.id, original.id);
-    assert.notEqual(finalized.hash, original.hash);
-    assert.throws(
-        () => parseAndFinalizeScenarioRevision(JSON.stringify({ ...revised, id: 'different-story' }), { scenarioId: original.id, contentVersion: original.contentVersion }),
-        /固定 id 或版本/,
-    );
-});
-
 test('only a complete strict scenario is finalized; raw prose, duplicate keys and draft hashes fail closed', () => {
     const scenario = parseAndFinalizeCustomScenario(JSON.stringify(validDraft()));
     assert.equal(scenario.id, 'moon-train-missing');
     assert.equal(scenario.public.title, BRIEF.title);
     assert.match(scenario.hash, /^fnv1a64:[a-f0-9]{16}$/u);
 
-    assert.throws(() => parseAndFinalizeCustomScenario('我写好了一个故事。'), /单一、严格的 JSON/);
+    assert.throws(() => parseAndFinalizeCustomScenario('我写好了一个故事。'), /单一 JSON/);
     assert.throws(() => parseAndFinalizeCustomScenario('{"schema":"a","schema":"b"}'), /重复字段/);
-    assert.throws(() => parseAndFinalizeCustomScenario(JSON.stringify({ ...validDraft(), hash: 'not-allowed' })), /字段不完整或含有未知字段/);
+    assert.throws(() => parseAndFinalizeCustomScenario(JSON.stringify({ ...validDraft(), hash: 'not-allowed' })), /含未知字段/);
     const incomplete = validDraft();
     incomplete.startSceneId = 'missing-scene';
     assert.throws(() => parseAndFinalizeCustomScenario(JSON.stringify(incomplete)), /严格 schema|剧情图不完整/);

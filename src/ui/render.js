@@ -1,3 +1,9 @@
+import { renderChapterModules } from './chapter-modules.js';
+import { renderChapterEditor } from './chapter-editor.js';
+import { renderCheckControl } from './check-control.js';
+import { renderScenarioDocument } from './scenario-document.js';
+import { renderPlayerEntries, renderPlayerState, renderPlayerEditor } from './player-progression.js';
+import { renderApiSettings } from './api-settings.js';
 const PHASE_ALIASES = Object.freeze({
     uninitialized: 'empty',
     no_campaign: 'empty',
@@ -75,16 +81,16 @@ function normalizeScenario(scenario, index = 0) {
         duration: string(first(value.duration, value.length)),
         version: string(value.version),
         symbol: string(first(value.symbol, object(value.cover).symbol), '✦'),
-        tags,
-        editable: value.editable === true,
+        tags, editable: Boolean(value.editable),
     };
 }
 
 function normalizeCheck(check) {
     const value = object(check);
     const rawAttribute = string(first(value.attributeLabel, value.attribute, value.stat), '行动');
-    const attribute = ({ body: '身手', insight: '洞察', rapport: '交涉' })[rawAttribute] ?? rawAttribute;
+    const attribute = value.skill?.name ?? ({ body: '身手', insight: '洞察', rapport: '交涉' })[rawAttribute] ?? rawAttribute;
     return {
+        skill: value.skill ?? null,
         id: string(first(value.id, value.checkId)),
         reason: string(first(value.reason, value.label, value.purpose), '前路出现了不确定的风险'),
         attribute,
@@ -92,8 +98,8 @@ function normalizeCheck(check) {
         difficulty: first(value.difficulty, value.target, value.dc),
         success: string(first(value.successStakes, value.successStake, value.success, object(value.stakes).success)),
         failure: string(first(value.failureStakes, value.failureStake, value.failure, object(value.stakes).failure)),
-        result: first(value.result, value.total),
-        outcome: string(value.outcome),
+        result: value.skill && value.difficulty === 100 ? '直接触发' : first(value.result, value.total, value.roll?.total),
+        outcome: string(value.outcome ?? value.roll?.outcome),
     };
 }
 
@@ -130,11 +136,13 @@ export function normalizeViewModel(input) {
     const pendingCheck = normalizeCheck(first(viewModel.pendingCheck, world.pendingCheck, viewModel.check));
     const lastCheckValue = first(viewModel.lastCheck, world.lastCheck);
     return {
+        contextEvidence: Array.isArray(viewModel.contextEvidence) ? viewModel.contextEvidence : [],
         enabled: viewModel.enabled !== false,
         hostKind: string(first(host.kind, viewModel.chatKind), 'single'),
         phase,
         scenario,
         player: object(first(viewModel.player, world.player)),
+        canEditPlayer: viewModel.canEditPlayer === true,
         chapter,
         scene: {
             title: string(first(sceneValue.title, sceneValue.name), '故事正在这里发生'),
@@ -193,9 +201,9 @@ function renderNamedCards(entries, kind) {
 }
 
 function renderScenarioCard(scenario, selected) {
-    const meta = [scenario.tone, scenario.duration, scenario.version ? `v${scenario.version}` : ''].filter(Boolean);
+    const meta = [scenario.tone, scenario.version ? `v${scenario.version}` : ''].filter(Boolean);
     const tags = scenario.tags.length ? `<div class="cw-tags">${scenario.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}</div>` : '';
-    return `<button type="button" class="cw-scenario-card${selected ? ' is-selected' : ''}" data-action="select-scenario" data-scenario-id="${escapeHtml(scenario.id)}" aria-pressed="${selected}">
+    return `<button type="button" class="cw-scenario-card${selected ? ' is-selected' : ''}" data-action="script-view" data-scenario-id="${escapeHtml(scenario.id)}">
         <span class="cw-scenario-card__art" aria-hidden="true"><b>${escapeHtml(scenario.symbol)}</b></span>
         <span class="cw-scenario-card__body"><span class="cw-scenario-card__meta">${escapeHtml(meta.join(' · ') || '单人剧情')}</span><strong>${escapeHtml(scenario.title)}</strong>${scenario.tagline ? `<em>${escapeHtml(scenario.tagline)}</em>` : ''}${scenario.summary ? `<span>${escapeHtml(scenario.summary)}</span>` : ''}${tags}</span>
         <span class="cw-scenario-card__arrow">${icon('arrow')}</span>
@@ -206,94 +214,80 @@ function renderWelcome() {
     return `<section class="cw-hero">
         <div class="cw-hero__sigil" aria-hidden="true">✦</div>
         <p class="cw-eyebrow">Candy W · 单人故事</p>
-        <h2>故事已经写好。<br>等你走进去。</h2>
-        <p class="cw-hero__copy">你只需要扮演自己。幕后导演记得秘密、时间与每个人真正想要什么，当前角色会把发生的一切演给你看。</p>
-        <div class="cw-stack">${button('选择一个故事', 'show-scenarios', { icon: 'compass' })}${button('按世界书写故事', 'show-world-authoring', { className: 'cw-button cw-button--secondary', icon: 'book' })}${button('写一个自己的故事', 'show-authoring', { className: 'cw-button cw-button--secondary', icon: 'spark' })}${button('继续保存的旅程', 'import-save', { className: 'cw-button cw-button--secondary', icon: 'book' })}</div>
+        <h2>选择一个世界，<br>写下你的故事。</h2>
+        <p class="cw-hero__copy">选择已有剧本，或把自己的故事设想与世界书结合。导演安排剧情，当前角色陪你演出，你决定自己的行动。</p>
+        <div class="cw-stack">${button('选择一个故事', 'show-scenarios', { icon: 'compass' })}${button('创作我的故事', 'show-authoring', { className: 'cw-button cw-button--secondary', icon: 'spark' })}${button('导入旅程备份', 'import-save', { className: 'cw-button cw-button--secondary', icon: 'book' })}</div>
         <button type="button" class="cw-text-button" data-action="import-scenario">导入剧本包</button>
     </section>`;
 }
 
-function renderScenarioLibrary(scenarios, selectedScenarioId) {
+function renderScenarioLibrary(scenarios, selectedScenarioId, hasCampaign = false, deleted = []) {
     return `<section class="cw-page cw-scenario-library">
-        <div class="cw-page-heading"><p class="cw-eyebrow">选择剧本</p><h2>你想走进哪个世界？</h2><p>这里只有开场前能知道的事。未来、秘密与结局仍在幕后。</p></div>
-        <div class="cw-scenario-list">${scenarios.length ? scenarios.map(scenario => renderScenarioCard(scenario, scenario.id === selectedScenarioId)).join('') : emptyState('还没有可进入的剧本。你可以导入一个严格校验的剧本包。')}</div>
-        <div class="cw-bottom-actions">${button('按世界书写故事', 'show-world-authoring', { className: 'cw-button cw-button--secondary', icon: 'book' })}${button('写一个自己的故事', 'show-authoring', { className: 'cw-button cw-button--secondary', icon: 'spark' })}${button('导入剧本包', 'import-scenario', { className: 'cw-button cw-button--secondary' })}<button type="button" class="cw-text-button" data-action="back-welcome">返回</button></div>
+        <div class="cw-page-heading"><p class="cw-eyebrow">选择剧本</p><h2>你想走进哪个世界？</h2><p>卡片展示无剧透简介。点击后查看完整剧本，也可以编辑或另存副本。</p></div>
+        <div class="cw-script-tools">${hasCampaign ? button('查看当前旅程剧本', 'script-current', { className: 'cw-button cw-button--secondary', icon: 'book' }) : ''}</div><div class="cw-scenario-list">${scenarios.length ? scenarios.map(scenario => `<article class="cw-library-entry">${renderScenarioCard(scenario, scenario.id === selectedScenarioId)}<div class="cw-library-actions">${button('查看完整剧本', 'script-view', { className: 'cw-text-button', data: { 'scenario-id': scenario.id } })}${button(scenario.editable ? '编辑剧本' : '查看 / 另存副本', 'script-edit-open', { className: 'cw-text-button', data: { 'scenario-id': scenario.id } })}${button('设置与绑定', 'setup-open', { className: 'cw-text-button', data: { 'scenario-id': scenario.id } })}${button('删除剧本', 'library-delete', { className: 'cw-text-button', data: { 'scenario-id': scenario.id } })}</div></article>`).join('') : emptyState('还没有可进入的剧本。你可以导入一个严格校验的剧本包。')}</div>
+        ${deleted.length?`<details class="cw-deleted-scripts"><summary>已删除的剧本（${deleted.length}）</summary><p>可以恢复；已建立的旅程继续保留。</p>${deleted.map(s=>`<div class="cw-script-tools"><span>${escapeHtml(s.title)}</span>${button('恢复','library-restore',{data:{'scenario-id':s.id}})}</div>`).join('')}</details>`:''}
+        <div class="cw-bottom-actions">${button('创作我的故事', 'show-authoring', { className: 'cw-button cw-button--secondary', icon: 'spark' })}${button('导入剧本包', 'import-scenario', { className: 'cw-button cw-button--secondary' })}<button type="button" class="cw-text-button" data-action="back-welcome">返回</button></div>
     </section>`;
 }
 
 function renderScenarioAuthoring(draft) {
     const value = name => escapeHtml(string(draft?.[name]));
-    const field = (name, label, placeholder, rows = 3, optional = false) => `<label><span>${label}${optional ? ' <small>可选</small>' : ''}</span><textarea name="${name}" maxlength="${name === 'premise' ? 1600 : name === 'npcGoals' ? 1400 : name === 'coreTruth' || name === 'endings' ? 1200 : name === 'opening' ? 900 : name === 'setting' || name === 'timePressure' ? 600 : 120}" rows="${rows}" placeholder="${escapeHtml(placeholder)}"${optional ? '' : ' required'}>${value(name)}</textarea></label>`;
+    const field = (name, label, placeholder, max, rows = 3, required = false) => `<label><span>${label}${required ? '' : ' <small>可选</small>'}</span><textarea name="${name}" maxlength="${max}" rows="${rows}" placeholder="${escapeHtml(placeholder)}"${required ? ' required' : ''}>${value(name)}</textarea></label>`;
     return `<section class="cw-page cw-scenario-authoring">
-        <div class="cw-page-heading"><p class="cw-eyebrow">自定义剧本</p><h2>把你想走进的世界写下来。</h2><p>你写下故事的硬边界与方向；当前连接的模型会把它编成完整、可分支、带秘密和时钟的导演剧本。未通过严格校验就不会保存。</p></div>
+        <div class="cw-page-heading"><p class="cw-eyebrow">创作我的故事</p><h2>你的故事，也可以发生在世界书里。</h2><p>写下你想经历什么、从哪里开始。导演把它编成剧本，聊天正文仍由主 API 按角色卡和预设演出。</p></div>
         <form class="cw-form" data-form="write-custom-scenario">
-            <label><span>剧本名称</span><input name="title" maxlength="120" autocomplete="off" required value="${value('title')}" placeholder="例如：月背列车失踪案"></label>
-            ${field('premise', '故事设想', '主角为何踏入这个世界？冲突从哪里开始？', 4)}
-            ${field('tone', '氛围与题材', '例如：近未来悬疑、温柔惊悚、古风权谋', 2, true)}
-            ${field('setting', '舞台与地点', '故事主要发生在哪里？有哪些关键地点？', 3)}
-            ${field('opening', '开场画面', '玩家进入聊天后，最先遇见的人、事或危机。', 3)}
-            ${field('coreTruth', '不可改写的真相', '即使玩家绕路也不会改变的核心事实、幕后规则或灾难。', 4)}
-            ${field('npcGoals', '关键人物与目的', '写出人物、彼此关系、各自想得到什么，以及至少一个隐藏目的。', 4)}
-            ${field('timePressure', '时间压力', '什么事件会按时间自动推进？拖延会带来什么可感知的代价？', 3)}
-            ${field('endings', '分支与结局方向', '玩家的决定可以怎样改变过程与结局？至少写两种不同去向。', 4)}
-            <p class="cw-form-note">编写不会把草稿、秘密或结果写入聊天正文；只有校验通过的剧本会加入当前设备的剧本库。</p>
+            <fieldset class="cw-creation-card"><legend>故事与开场</legend>
+                <label><span>剧本名称 <small>可选</small></span><input name="title" maxlength="120" autocomplete="off" value="${value('title')}" placeholder="留空由导演取名"></label>
+                ${field('premise', '我想写的故事', '例如：我重返故乡，与旧友修复一座书店，在日常相处中慢慢发现家族往事。', 1600, 4, true)}
+                ${field('opening', '我希望这样开场', '例如：从雨停后的书店门口开始。旧友正搬书，看到我时先停下手里的动作；不要一上来就介绍全部背景或安排灾难。', 900, 4)}
+                ${field('tone', '氛围与写作感觉', '例如：温柔、慢热、有生活感；先写人物互动', 120, 2)}
+            </fieldset>
+            ${renderChapterModules(draft?.chapterOutline??[])}
+            <fieldset class="cw-creation-card"><legend>结合世界书</legend>
+                ${renderCheckControl({name:'useWorldInfo',label:'使用当前聊天的世界书',description:'你的设想决定故事方向，世界书提供已有的人物、地点与规则。',checked:Boolean(draft?.useWorldInfo),controls:'cw-world-anchors'})}
+                <div id="cw-world-anchors" ${draft?.useWorldInfo ? '' : 'hidden'}>
+                    ${field('anchors', '优先查找的关键词', '人物、地点、组织或物件；用逗号或换行分隔。', 600, 2)}
+                    <p class="cw-form-note">按酒馆原生规则读取已激活条目。没有命中时会提示补充关键词，并保留你填写的故事。</p>
+                </div>
+            </fieldset>
+            <details class="cw-creation-card cw-story-details"><summary>更多故事设定 <small>可选，不填由导演补全</small></summary>
+                ${field('setting', '舞台与地点', '主要发生在哪里？有哪些你想加入的地点？', 600)}
+                ${field('coreTruth', '必须保留的真相与规则', '你希望故事始终遵守的事实，或需要藏在幕后的真相。', 1200)}
+                ${field('npcGoals', '人物、关系与心愿', '谁会参与故事？各自想得到什么？', 1400)}
+                ${field('timePressure', '时间推进与节奏', '例如：按日常作息慢慢推进，不设置紧迫灾难。', 600)}
+                ${field('endings', '期待的走向或结局', '希望故事走向哪里？可以写几个方向，具体选择留给游玩时的你。', 1200)}
+            </details>
+            <p class="cw-form-note">只需填写故事设想。编写进度会保存，可以停止后继续。新剧本加入剧本库后再建立旅程；已有聊天的固定剧本不会因此改变。</p>
             ${button('写成可玩剧本', 'submit-custom-scenario', { icon: 'spark' })}
         </form>
         <button type="button" class="cw-text-button" data-action="back-scenarios">返回剧本库</button>
     </section>`;
 }
 
-function renderWorldInfoScenarioAuthoring(draft) {
-    const value = name => escapeHtml(string(draft?.[name]));
-    return `<section class="cw-page cw-scenario-authoring">
-        <div class="cw-page-heading"><p class="cw-eyebrow">世界书剧本</p><h2>告诉世界，你想让故事走到哪里。</h2><p>插件会按原生世界书扫描规则找出与结果相关的条目，再交给当前连接的模型写成完整导演剧本。它不会读取或复制整本世界书。</p></div>
-        <form class="cw-form" data-form="write-world-info-scenario">
-            <label><span>剧本名称 <small>可选</small></span><input name="title" maxlength="120" autocomplete="off" value="${value('title')}" placeholder="不写也可以，让故事自己取名"></label>
-            <label><span>你想要的结果</span><textarea name="outcome" maxlength="1600" rows="5" required placeholder="例如：让主角发现王位继承真相，并在战争爆发前决定把王冠交给谁。">${value('outcome')}</textarea></label>
-            <label><span>蓝色扫描词 <small>可选</small></span><textarea name="anchors" maxlength="600" rows="3" placeholder="只用来触发扫描；填人物、地点、组织或物件，例如：王城，王冠，黎明军">${value('anchors')}</textarea></label>
-            <p class="cw-form-note">蓝色扫描词只负责触发原生世界书扫描；绿色命中的条目才会作为世界事实交给编剧。没有命中时，系统会提示你补充扫描词，不会用整本世界书硬塞进剧本。</p>
-            ${button('按世界书写成剧本', 'submit-world-info-scenario', { icon: 'book' })}
-        </form>
-        <button type="button" class="cw-text-button" data-action="back-scenarios">返回剧本库</button>
-    </section>`;
-}
+function renderPlayerSetup(scenario, draft = {}, entries = [], notice = '', view = {}, issues = []) {
 
-function renderPlayerSetup(scenario) {
-    const attributeSelect = (name, label, selected) => `<label class="cw-attribute-field"><span>${label}</span><select name="${name}" aria-label="${label}加值"><option value="2" ${selected === 2 ? 'selected' : ''}>+2</option><option value="1" ${selected === 1 ? 'selected' : ''}>+1</option><option value="0" ${selected === 0 ? 'selected' : ''}>+0</option></select></label>`;
     return `<section class="cw-page cw-player-setup">
-        <div class="cw-selected-world"><span aria-hidden="true">${escapeHtml(scenario.symbol)}</span><div><small>你将进入</small><strong>${escapeHtml(scenario.title)}</strong>${scenario.tagline ? `<p>${escapeHtml(scenario.tagline)}</p>` : ''}</div></div>
-        <div class="cw-page-heading"><p class="cw-eyebrow">关于你</p><h2>故事该怎样认识你？</h2><p>只写角色进入故事前已经成立的部分。之后的经历会由行动留下。</p></div>
+        <div class="cw-selected-world"><span aria-hidden="true">${escapeHtml(scenario.symbol)}</span><div><small>独立剧本</small><strong>${escapeHtml(scenario.title)}</strong>${scenario.tagline ? `<p>${escapeHtml(scenario.tagline)}</p>` : ''}</div></div>
+        <div class="cw-page-heading"><p class="cw-eyebrow">设置与绑定</p><h2>保存一次，绑定到需要的聊天。</h2><p>剧本与开局设置独立保存在剧本库。同一剧本可绑定多个聊天，各个聊天分别记录剧情进度。</p></div>
         <form class="cw-form" data-form="create-campaign">
             <input type="hidden" name="scenarioId" value="${escapeHtml(scenario.id)}">
-            <label><span>你的名字</span><input name="playerName" maxlength="80" autocomplete="off" required placeholder="故事里如何称呼你"></label>
-            <label><span>一句角色设定 <small>可选</small></span><textarea name="playerConcept" maxlength="280" rows="3" placeholder="例如：刚从外地归来的旧宅继承人"></textarea></label>
-            <label><span>与当前角色的关系起点 <small>可选</small></span><input name="playerRelationship" maxlength="160" autocomplete="off" placeholder="例如：七年未见的旧友"></label>
-            <fieldset class="cw-attributes"><legend>分配行动加值</legend><p>把 +2、+1、+0 各分配一次；它们只在导演明确要求判定时使用。</p><div>${attributeSelect('attributeBody', '身手', 2)}${attributeSelect('attributeInsight', '洞察', 1)}${attributeSelect('attributeRapport', '交涉', 0)}</div></fieldset>
+            <label><span>开场时的称呼</span><input name="playerName" maxlength="120" autocomplete="off" required value="${escapeHtml(draft.playerName)}" placeholder="故事开始时如何称呼你"></label><p class="cw-form-note">名字可以随剧情改变。明确改名或采用化名后，会在下一轮行动结算时更新；也能在“角色状态”中手动修改。</p>
+            <label><span>本剧本的补充设定 <small>可选</small></span><textarea name="playerConcept" maxlength="280" rows="3" placeholder="留空沿用酒馆 Persona；这里只补充本故事身份或背景">${escapeHtml(draft.playerConcept)}</textarea></label>
+            <label><span>与当前角色的关系起点 <small>可选</small></span><input name="playerRelationship" maxlength="160" autocomplete="off" value="${escapeHtml(draft.playerRelationship)}" placeholder="例如：七年未见的旧友"></label>
+            <input type="hidden" name="attributeBody" value="0"><input type="hidden" name="attributeInsight" value="0"><input type="hidden" name="attributeRapport" value="0">
+            <div class="cw-player-generation">${button('根据剧本生成数值与技能', 'write-player-entries', {className:'cw-button cw-button--secondary'})}<button type="button" class="cw-text-button" data-action="undo-generated-entries" hidden>恢复生成前的条目</button><p class="cw-form-note">使用导演 API，生成后可逐项编辑，保存前不会覆盖原设置。</p></div>
+            ${renderPlayerEntries(entries, true, issues)}
             <p class="cw-form-note">当前角色卡仍决定与你对话之人的人设、关系与口吻。</p>
-            ${button('建立旅程', 'submit-create', { icon: 'spark' })}
+            <div class="cw-setup-save"><p class="cw-form-note" data-setup-notice role="status">${escapeHtml(notice || '设置保存在剧本库，不需要导出。')}</p>${button('保存剧本设置', 'save-scenario-setup', { className: 'cw-button cw-button--secondary', icon: 'book' })}${button(view.phase !== 'empty' && view.scenario?.id === scenario.id ? '返回已绑定的聊天' : '保存并绑定当前聊天', view.phase !== 'empty' && view.scenario?.id === scenario.id ? 'back-welcome' : 'submit-create', { icon: 'spark', data: {'review-binding': view.hostKind === 'single' && (['empty','ended'].includes(view.phase) || view.scenario?.id === scenario.id)}, disabled: issues.length > 0 || view.hostKind !== 'single' || !['empty','ended'].includes(view.phase) && view.scenario?.id !== scenario.id })}<p class="cw-form-note">${view.hostKind !== 'single' ? '先保存设置，再打开需要的单角色聊天来绑定。' : !['empty','ended'].includes(view.phase) ? '当前聊天已有剧本。修改开局设置不会重置已经绑定的聊天。' : '绑定后再点“进入世界”才会生成开场。切换到另一个聊天，可再次绑定同一剧本。'}</p></div>
         </form>
-        <div class="cw-bottom-actions">${scenario.editable ? button('修改这个剧本', 'show-revision', { className: 'cw-button cw-button--secondary', icon: 'spark', data: { scenarioId: scenario.id } }) : ''}<button type="button" class="cw-text-button" data-action="back-scenarios">重新选剧本</button></div>
-    </section>`;
-}
-
-function renderScenarioRevision(scenario, draft) {
-    const instruction = escapeHtml(string(draft?.instruction));
-    return `<section class="cw-page cw-scenario-authoring">
-        <div class="cw-page-heading"><p class="cw-eyebrow">修改剧本</p><h2>想让这个世界哪里不一样？</h2><p>写下要改的内容，例如结局、人物动机、事件顺序或判定风险。系统会重写完整剧本并重新校验；已开始的旅程仍使用它们自己的旧快照。</p></div>
-        <form class="cw-form" data-form="revise-scenario">
-            <input type="hidden" name="scenarioId" value="${escapeHtml(string(draft?.scenarioId || scenario.id))}">
-            <label><span>修改说明</span><textarea name="instruction" maxlength="1600" rows="7" required placeholder="例如：把最终决定改为救旧港，但让魏朔的动机更有说服力；保留所有判定与倒计时。">${instruction}</textarea></label>
-            <p class="cw-form-note">只有校验通过的新版本会替换剧本库中的这份剧本；当前进行中的旅程不会被改变。</p>
-            ${button('重写并保存剧本', 'submit-scenario-revision', { icon: 'spark' })}
-        </form>
-        <button type="button" class="cw-text-button" data-action="back-scenarios">返回剧本库</button>
+        <button type="button" class="cw-text-button" data-action="back-scenarios">重新选剧本</button>
     </section>`;
 }
 
 function renderWorldGate(view) {
     return `<section class="cw-world-gate">
         <div class="cw-world-gate__symbol" aria-hidden="true">${escapeHtml(view.scenario.symbol)}</div>
-        <p class="cw-eyebrow">旅程已经准备好</p>
+        <p class="cw-eyebrow">已绑定当前聊天 · 尚未开场</p>
         <h2>${escapeHtml(view.scenario.title)}</h2>
         ${view.scenario.tagline ? `<p class="cw-world-gate__tagline">${escapeHtml(view.scenario.tagline)}</p>` : ''}
         <div class="cw-boundary-note"><span>${icon('spark')}</span><p>从这一刻起，世界会记住你的选择。你在聊天里正常说出行动，导演会在幕后推进故事。</p></div>
@@ -326,6 +320,7 @@ function renderObjectives(objectives) {
 function renderWorldNow(view) {
     const placeLine = [view.scene.location, view.scene.time].filter(Boolean).join(' · ');
     return `<div class="cw-world-view">
+        ${view.contextEvidence.length ? `<details class="cw-context-evidence"><summary>本轮接入内容 · ${view.contextEvidence.length} 项</summary><ul>${view.contextEvidence.map(item => `<li><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.reason)}</span></li>`).join('')}</ul></details>` : ''}
         <section class="cw-scene-card"><p class="cw-eyebrow">此刻${placeLine ? ` · ${escapeHtml(placeLine)}` : ''}</p><h3>${escapeHtml(view.scene.title)}</h3>${view.scene.description ? `<p>${escapeHtml(view.scene.description)}</p>` : ''}</section>
         ${renderCrises(view.crises)}
         <section class="cw-known-section"><div class="cw-section-heading"><span>${icon('compass')}</span><h3>眼前要做的事</h3></div>${renderObjectives(view.objectives)}</section>
@@ -344,12 +339,12 @@ function renderKnownWorld(view) {
 
 function renderChapter(view) {
     const number = view.chapter.number !== null && view.chapter.number !== undefined ? `第 ${escapeHtml(view.chapter.number)} 章` : '当前章节';
-    return `<div class="cw-chapter-view"><div class="cw-chapter-mark" aria-hidden="true">${escapeHtml(view.chapter.number ?? '✦')}</div><p class="cw-eyebrow">${number}</p><h3>${escapeHtml(view.chapter.title || view.scenario.title)}</h3>${view.chapter.summary ? `<p>${escapeHtml(view.chapter.summary)}</p>` : '<p class="cw-muted">章节会随着已经发生的事实更新，不会提前揭示未来。</p>'}</div>`;
+    return `<div class="cw-chapter-view"><div class="cw-chapter-mark" aria-hidden="true">${escapeHtml(view.chapter.number ?? '✦')}</div><p class="cw-eyebrow">${number}</p><h3>${escapeHtml(view.chapter.title || view.scenario.title)}</h3>${view.chapter.summary ? `<p>${escapeHtml(view.chapter.summary)}</p>` : '<p class="cw-muted">章节会随着已经发生的事实更新，不会提前揭示未来。</p>'}${button('中途加入章节', 'chapter-open')}</div>`;
 }
 
 function renderPlaying(view, activeTab) {
     const tabs = [
-        ['now', '此刻'],
+        ['now', '故事'],
         ['known', '已知世界'],
         ['chapter', '章节'],
     ];
@@ -357,16 +352,16 @@ function renderPlaying(view, activeTab) {
         <header class="cw-world-header"><div><small>${escapeHtml(view.scenario.title)}</small><strong>${escapeHtml(view.chapter.title || '旅程进行中')}</strong></div><span class="cw-live-pill"><i></i>世界在前进</span></header>
         <nav class="cw-tabs" aria-label="世界记录">${tabs.map(([key, label]) => `<button type="button" data-action="set-tab" data-tab="${key}" class="${activeTab === key ? 'is-active' : ''}" aria-current="${activeTab === key ? 'page' : 'false'}">${label}</button>`).join('')}</nav>
         <div class="cw-scroll-region">${activeTab === 'known' ? renderKnownWorld(view) : activeTab === 'chapter' ? renderChapter(view) : renderWorldNow(view)}</div>
-        <footer class="cw-world-footer">${button('保存旅程', 'export-save', { className: 'cw-icon-label-button', icon: 'download' })}<button type="button" class="cw-text-button cw-text-button--danger" data-action="end-campaign">结束旅程</button></footer>
+        <footer class="cw-world-footer">${button('导出旅程备份', 'export-save', { className: 'cw-icon-label-button', icon: 'download' })}<button type="button" class="cw-text-button cw-text-button--danger" data-action="end-campaign">结束旅程</button></footer>
     </section>`;
 }
 
 function renderPendingCheck(view) {
     const check = view.pendingCheck;
-    const difficulty = check.difficulty === null || check.difficulty === undefined || check.difficulty === '' ? '由剧本规则确定' : `难度 ${check.difficulty}`;
+    const difficulty = check.skill ? `点数 ≤ ${check.difficulty}，触发概率 ${check.difficulty}%` : check.difficulty === null || check.difficulty === undefined || check.difficulty === '' ? '由剧本规则确定' : `难度 ${check.difficulty}`;
     return `<section class="cw-check-screen">
         <div class="cw-check-screen__icon">${icon('die')}</div><p class="cw-eyebrow">需要一次公开判定</p><h2>${escapeHtml(check.reason)}</h2>
-        <div class="cw-check-rule"><div><small>使用</small><strong>${escapeHtml(check.attribute)}</strong></div><div><small>投掷</small><strong>${escapeHtml(check.formula)}</strong></div><div><small>目标</small><strong>${escapeHtml(difficulty)}</strong></div></div>
+        <div class="cw-check-rule${check.skill ? ' cw-check-rule--skill' : ''}"><div><small>使用</small><strong>${escapeHtml(check.attribute)}</strong></div><div><small>投掷</small><strong>${escapeHtml(check.formula)}</strong></div><div><small>目标</small><strong>${escapeHtml(difficulty)}</strong></div></div>
         <div class="cw-stakes"><article class="cw-stake cw-stake--success"><small>成功时</small><p>${escapeHtml(check.success || '你会争取到想要的进展。')}</p></article><article class="cw-stake cw-stake--failure"><small>失败时</small><p>${escapeHtml(check.failure || '世界会推进一个明确的代价。')}</p></article></div>
         <p class="cw-check-fact">骰子一旦落下，结果会成为不可改写的剧情事实。</p>
         ${button('公开投骰', 'roll-check', { icon: 'die' })}
@@ -398,19 +393,24 @@ function renderHostBoundary(view) {
     return '';
 }
 
-export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_LIST, selectedScenarioId = '', activeTab = 'now', localError = '', busyAction = '', authoringDraft = {}, worldAuthoringDraft = {}, revisionDraft = {} }) {
+export function renderPanel({ playerIssues = [], chapterModules = null, deletedScenarios = [], scriptSectionTitle = null, scriptInlineKey = null, chapterDraft = null, viewModel, screen = 'welcome', scenarios = EMPTY_LIST, selectedScenarioId = '', activeTab = 'now', localError = '', busyAction = '', authoringDraft = {}, apiSettings = {}, authoringJob = null, playerDraft = {}, playerEntries = [], playerEditName = '', scenarioDocument = null, scriptEditing = false, scriptChanges = {}, scriptGroup = '全部', revisionRequest = '', scenarioSetup = null, setupNotice = '', revisionSelection = {mode:'selected',ids:[]} }) {
     const view = normalizeViewModel(viewModel);
     const normalizedScenarios = scenarios.map(normalizeScenario);
     const selectedScenario = normalizedScenarios.find(scenario => scenario.id === selectedScenarioId) ?? normalizedScenarios[0] ?? normalizeScenario({});
     const hostBoundary = renderHostBoundary(view);
-    let content = hostBoundary;
+    let content = screen === 'api-settings' ? renderApiSettings(apiSettings) : hostBoundary;
+    if (view.enabled && screen === 'player') content = renderPlayerSetup(scenarioSetup ? normalizeScenario(scenarioSetup.scenario) : selectedScenario, playerDraft, playerEntries, setupNotice, view, playerIssues);
+    if (view.enabled && screen === 'scenarios') content = renderScenarioLibrary(normalizedScenarios, selectedScenarioId, view.phase !== 'empty', deletedScenarios);
+    if (view.enabled && screen === 'script') content = renderScenarioDocument(scenarioDocument, { chapterModules, sectionTitle: scriptSectionTitle, inlineKey: scriptInlineKey, editing: scriptEditing, changes: scriptChanges, group: scriptGroup, request: revisionRequest, selection: revisionSelection, canStart: ['empty','ended'].includes(view.phase) && view.hostKind === 'single' });
+    if (view.enabled && view.hostKind === 'single' && screen === 'authoring') content = renderScenarioAuthoring(authoringDraft);
+    if (!content && screen === 'chapter-editor') content = renderChapterEditor(chapterDraft,busyAction);
+    if (!content && screen === 'player-state' && view.phase !== 'empty') content = renderPlayerState(view);
+    if (!content && screen === 'player-editor' && view.phase !== 'empty') content = renderPlayerEditor(playerEntries, playerEditName, playerIssues);
     if (!content) {
         if (view.phase === 'empty') {
             if (screen === 'scenarios') content = renderScenarioLibrary(normalizedScenarios, selectedScenarioId);
             else if (screen === 'authoring') content = renderScenarioAuthoring(authoringDraft);
-            else if (screen === 'world-authoring') content = renderWorldInfoScenarioAuthoring(worldAuthoringDraft);
-            else if (screen === 'revision' && selectedScenario.editable) content = renderScenarioRevision(selectedScenario, revisionDraft);
-            else if (screen === 'player') content = renderPlayerSetup(selectedScenario);
+            else if (screen === 'player') content = renderPlayerSetup(selectedScenario, playerDraft, playerEntries, setupNotice, view, playerIssues);
             else content = renderWelcome();
         } else if (view.phase === 'ready') content = renderWorldGate(view);
         else if (view.phase === 'opening') content = renderGenerating(view, false);
@@ -423,8 +423,8 @@ export function renderPanel({ viewModel, screen = 'welcome', scenarios = EMPTY_L
     const title = view.scenario.title && view.phase !== 'empty' ? view.scenario.title : 'Candy W';
     const error = localError ? `<div class="cw-inline-error" role="alert"><span>${escapeHtml(localError)}</span><button type="button" data-action="dismiss-error" aria-label="关闭错误提示">${icon('close')}</button></div>` : '';
     return `<div class="cw-director-shell${busyAction ? ' is-busy' : ''}" data-phase="${escapeHtml(view.phase)}">
-        <header class="cw-panel-header"><div><span class="cw-panel-brand">✦</span><div><strong>${escapeHtml(title)}</strong><small>无形导演 · 当前角色演出</small></div></div><button type="button" class="cw-icon-button" data-action="close" aria-label="关闭 Candy W">${icon('close')}</button></header>
-        ${error}<main class="cw-panel-main" id="cw-director-main" tabindex="-1">${content}</main>
+        <header class="cw-panel-header"><div><span class="cw-panel-brand">✦</span><div><strong>${escapeHtml(title)}</strong><small>无形导演 · 当前角色演出</small></div></div><button type="button" class="cw-text-button" data-action="show-scenarios">剧本库</button>${view.phase !== 'empty' ? '<button type="button" class="cw-text-button" data-action="player-show">角色状态</button>' : ''}<button type="button" class="cw-text-button cw-api-open" data-action="show-api-settings" aria-label="导演 API 设置">API 设置</button><button type="button" class="cw-icon-button" data-action="close" aria-label="关闭 Candy W">${icon('close')}</button></header>
+        ${error}${renderAuthoringJob(authoringJob)}${screen === 'api-settings' && busyAction ? '<div class="cw-api-progress" role="status">正在处理…<button type="button" class="cw-text-button" data-action="cancel-api-request">取消请求</button></div>' : ''}<main class="cw-panel-main" id="cw-director-main" tabindex="-1">${content}</main>
         <input type="file" id="cw-import-scenario" data-file-kind="scenario" accept="application/json,.json" hidden>
         <input type="file" id="cw-import-save" data-file-kind="save" accept="application/json,.json" hidden>
     </div>`;
@@ -434,4 +434,14 @@ export function renderToggle(viewModel) {
     const view = normalizeViewModel(viewModel);
     const active = !['empty', 'ended'].includes(view.phase);
     return `<span class="cw-toggle__mark" aria-hidden="true">✦</span>${active ? '<i aria-label="旅程进行中"></i>' : ''}`;
+}
+
+function renderAuthoringJob(job) {
+    if (!job) return '';
+    const d = job.diagnostic;
+    return `<section class="cw-authoring-progress" aria-label="剧本编写进度"><strong>${escapeHtml(job.title)}</strong>
+    <p role="status">${escapeHtml(job.stage)} · 已完成 ${job.completed}${job.total ? `/${job.total}` : ''} 个场景${job.busy ? (job.correcting ? ` · 正在核对并重写（${job.attempt}/${job.attemptLimit}）` : ' · 正在编写') : job.reviewReady ? ' · 待保存' : ' · 可继续'}</p>
+    ${job.error ? `<p class="cw-authoring-error">${escapeHtml(job.error)}</p>` : ''}
+    ${d ? `<details><summary>查看失败详情</summary><p>接口：${escapeHtml(d.route)} · 模型：${escapeHtml(d.model)}<br>结束原因：${escapeHtml(d.finishReason)} · 输出用量：${escapeHtml(d.usage?.output ?? '未提供')}<br>错误类别：${escapeHtml(d.code)}<br>请求编号：${escapeHtml(d.requestId)}</p></details>` : ''}
+    <div class="cw-api-actions">${job.reviewReady ? '<button type="button" class="cw-text-button" data-action="script-review">查看修改版</button><button type="button" class="cw-text-button" data-action="discard-authoring">放弃这份改写</button>' : job.busy ? '<button type="button" class="cw-text-button" data-action="cancel-api-request">停止编写并保留进度</button>' : `<button type="button" class="cw-text-button" data-action="resume-authoring">${job.finalFailed ? '检查并修正问题场景' : '继续编写'}</button><button type="button" class="cw-text-button" data-action="replan-authoring">${job.partialRevision ? '重新改写所选部分' : '重新规划'}</button><button type="button" class="cw-text-button" data-action="discard-authoring">放弃此编写任务</button>`}</div></section>`;
 }

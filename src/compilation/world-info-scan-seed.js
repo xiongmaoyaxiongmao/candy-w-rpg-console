@@ -31,6 +31,8 @@ export function compileWorldInfoScanSeed(publicAnchors, options = {}) {
             label: `publicAnchors[${index}]`,
             minChars: 1,
             maxChars: 160,
+            // Accept textarea line breaks and tabs before collapsing whitespace.
+            multiline: true,
         }).replace(/\s+/gu, ' ');
         const duplicateKey = anchor.toLowerCase();
         if (seen.has(duplicateKey)) continue;
@@ -42,4 +44,15 @@ export function compileWorldInfoScanSeed(publicAnchors, options = {}) {
         length = nextLength;
     }
     return selected.join('\n');
+}
+
+/** Keep authoring text intact under a separate budget. Runtime anchors have
+ * shorter limits; splitting this prose could break a World Info keyword. */
+export function compileAuthoringWorldInfoScanSeed(parts) {
+    const values = parts.filter(value => value !== undefined && value !== '').map(part =>
+        cleanText(part, { label: '故事扫描内容', minChars: 0, maxChars: 1600, multiline: true }).replace(/\s+/gu, ' ').trim(),
+    ).filter(Boolean);
+    const seed = [...new Set(values)].join('\n');
+    if (seed.length > 6000) throw new Error('用于世界书扫描的创作内容过长，请缩短故事设想或关键词。');
+    return seed;
 }

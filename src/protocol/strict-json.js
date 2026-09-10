@@ -1,12 +1,10 @@
 import { fail, isPlainRecord } from './validation.js';
 
-const CODE = 'INVALID_ACTION_DECISION';
+
 const MAX_JSON_CHARS = 120_000;
 const MAX_DEPTH = 16;
 
-function malformed() {
-    fail('行动分类必须是单一、严格的 JSON 对象。', CODE);
-}
+function malformed() { fail('返回内容不是完整的单一 JSON 对象。', 'INVALID_JSON'); }
 
 function skipWhitespace(source, start) {
     let index = start;
@@ -51,7 +49,7 @@ function scanNumber(source, start) {
 }
 
 function scanValue(source, start, depth) {
-    if (depth > MAX_DEPTH) fail('行动分类 JSON 嵌套过深。', CODE);
+    if (depth > MAX_DEPTH) fail('JSON 嵌套过深。', 'INVALID_JSON');
     const index = skipWhitespace(source, start);
     const first = source[index];
     if (first === '"') return scanString(source, index).end;
@@ -69,7 +67,7 @@ function scanObject(source, start, depth) {
     if (source[index] === '}') return index + 1;
     while (index < source.length) {
         const key = scanString(source, index);
-        if (keys.has(key.decoded)) fail(`行动分类 JSON 含重复字段 ${key.decoded}。`, CODE);
+        if (keys.has(key.decoded)) fail(`JSON 含重复字段 ${key.decoded}。`, 'INVALID_JSON');
         keys.add(key.decoded);
         index = skipWhitespace(source, key.end);
         if (source[index] !== ':') malformed();
@@ -93,9 +91,9 @@ function scanArray(source, start, depth) {
     malformed();
 }
 
-export function parseStrictJsonObject(raw) {
-    if (typeof raw !== 'string') fail('行动分类响应必须是文本。', CODE);
-    if (raw.length > MAX_JSON_CHARS) fail(`行动分类响应超过 ${MAX_JSON_CHARS} 字符。`, CODE);
+function parseObject(raw) {
+    if (typeof raw !== 'string') fail('生成响应必须是文本。', 'INVALID_JSON');
+    if (raw.length > MAX_JSON_CHARS) fail(`生成响应超过 ${MAX_JSON_CHARS} 字符。`, 'INVALID_JSON');
     const source = raw.trim();
     if (!source.startsWith('{') || !source.endsWith('}')) malformed();
     const end = skipWhitespace(source, scanValue(source, 0, 0));
@@ -105,4 +103,9 @@ export function parseStrictJsonObject(raw) {
     catch { malformed(); }
     if (!isPlainRecord(parsed)) malformed();
     return parsed;
+}
+
+export function parseStrictJsonObject(raw, { label = '生成结果', code = 'INVALID_JSON' } = {}) {
+    try { return parseObject(raw); }
+    catch (cause) { const error = new Error(`${label}：${cause.message}`); error.code = code; throw error; }
 }

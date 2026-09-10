@@ -23,7 +23,7 @@ const playing = {
     scene: { title: '雨落在废弃站台', description: '远处亮起一束白光。', location: '雾港北站', time: '午夜前' },
     world: {
         objectives: [{ name: '在午夜前找到寄信人' }],
-        characters: [{ name: '祁寒川', relation: '旧友', detail: '与你一同前往北站。' }],
+        characters: [{ name: '示例旅伴', relation: '旧友', detail: '与你一同前往北站。' }],
         clues: [{ name: '迟到七年的信', detail: '邮戳日期是今天。' }],
         items: [{ name: '寄存柜钥匙', detail: '刻着北站 17。' }],
         crises: [{ name: '末班车即将进站', urgency: '还剩 2 刻' }],
@@ -37,13 +37,13 @@ const playing = {
 test('welcome and scenario selection describe entering a story without future spoilers', () => {
     const empty = { enabled: true, host: { kind: 'single' }, phase: 'empty' };
     const welcome = renderPanel({ viewModel: empty });
-    assert.match(welcome, /故事已经写好/);
+    assert.match(welcome, /选择一个世界/);
     assert.match(welcome, /选择一个故事/);
     assert.doesNotMatch(welcome, /团务|让 AI 继续/);
 
     const library = renderPanel({ viewModel: empty, screen: 'scenarios', scenarios: [scenario], selectedScenarioId: scenario.id });
     assert.match(library, /你想走进哪个世界/);
-    assert.match(library, /未来、秘密与结局仍在幕后/);
+    assert.match(library, /无剧透简介/);
     assert.match(library, /雾港末班车/);
 });
 
@@ -53,7 +53,7 @@ test('custom scenario authoring is a focused creative brief, not a raw schema ed
         screen: 'authoring',
         authoringDraft: { title: '月背列车失踪案', premise: '失踪案从终点站开始。' },
     });
-    assert.match(html, /把你想走进的世界写下来/);
+    assert.match(html, /你的故事，也可以发生在世界书里/);
     assert.match(html, /data-form="write-custom-scenario"/);
     assert.match(html, /name="coreTruth"/);
     assert.match(html, /name="timePressure"/);
@@ -62,49 +62,30 @@ test('custom scenario authoring is a focused creative brief, not a raw schema ed
     assert.doesNotMatch(html, /name="schema"|name="secrets"|name="scenes"/);
 });
 
-test('world info authoring asks for a desired outcome and optional scan anchors only', () => {
-    const html = renderPanel({
-        viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' },
-        screen: 'world-authoring',
-        worldAuthoringDraft: { outcome: '在零点前决定潮门去向。', anchors: '雾港, 潮门' },
-    });
-    assert.match(html, /告诉世界，你想让故事走到哪里/);
-    assert.match(html, /data-form="write-world-info-scenario"/);
-    assert.match(html, /name="outcome"/);
-    assert.match(html, /name="anchors"/);
-    assert.match(html, /蓝色扫描词/);
-    assert.match(html, /绿色命中的条目/);
-    assert.match(html, /按世界书写成剧本/);
-    assert.match(html, /在零点前决定潮门去向/);
-    assert.doesNotMatch(html, /name="secrets"|name="scenes"/);
+test('one creation entry combines story, opening and optional native world info', () => {
+    const viewModel = { enabled: true, host: { kind: 'single' }, phase: 'empty' };
+    const home = renderPanel({ viewModel });
+    assert.match(home, /创作我的故事/); assert.doesNotMatch(home, /show-world-authoring/);
+    const html = renderPanel({ viewModel, screen: 'authoring', authoringDraft: { useWorldInfo: true, opening: '<雨停>', anchors: '书店' } });
+    assert.match(html, /name="useWorldInfo"[^>]*checked/);
+    assert.match(html, /name="opening"/); assert.match(html, /&lt;雨停&gt;/);
+    assert.match(html, /name="anchors"/); assert.match(html, /cw-creation-card/);
+    assert.doesNotMatch(html, /id="cw-world-anchors" hidden/);
+    assert.match(renderPanel({ viewModel, screen: 'authoring' }), /id="cw-world-anchors" hidden/);
+    assert.doesNotMatch(html, /name="opening"[^>]*required/);
 });
 
-test('saved authored scenarios expose natural-language revision without exposing raw schema', () => {
-    const editableScenario = { ...scenario, editable: true };
-    const setup = renderPanel({ viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' }, screen: 'player', scenarios: [editableScenario], selectedScenarioId: editableScenario.id });
-    assert.match(setup, /修改这个剧本/);
-
-    const revision = renderPanel({
-        viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' },
-        screen: 'revision', scenarios: [editableScenario], selectedScenarioId: editableScenario.id,
-        revisionDraft: { scenarioId: editableScenario.id, instruction: '把结局改成旧港获救。' },
-    });
-    assert.match(revision, /想让这个世界哪里不一样/);
-    assert.match(revision, /data-form="revise-scenario"/);
-    assert.match(revision, /把结局改成旧港获救/);
-    assert.doesNotMatch(revision, /name="secrets"|name="scenes"/);
-});
-
-test('player setup collects relationship and a unique +2 +1 +0 allocation', () => {
+test('player setup collects relationship and offers generated editable skills', () => {
     const html = renderPanel({ viewModel: { enabled: true, host: { kind: 'single' }, phase: 'empty' }, screen: 'player', scenarios: [scenario], selectedScenarioId: scenario.id });
     assert.match(html, /name="playerRelationship"/);
     assert.match(html, /与当前角色的关系起点/);
     assert.match(html, /name="attributeBody"/);
     assert.match(html, /name="attributeInsight"/);
     assert.match(html, /name="attributeRapport"/);
-    assert.match(html, /身手/);
-    assert.match(html, /洞察/);
-    assert.match(html, /交涉/);
+    assert.match(html, /根据剧本生成数值与技能/);
+    assert.doesNotMatch(html,/分配行动加值/);
+    assert.match(html,/熟练度 100/);
+    assert.match(html,/本剧本的补充设定/);
 });
 
 test('playing view projects only known world fields', () => {
@@ -115,7 +96,7 @@ test('playing view projects only known world fields', () => {
     assert.doesNotMatch(now, /绝不能显示/);
 
     const known = renderPanel({ viewModel: playing, activeTab: 'known' });
-    assert.match(known, /祁寒川/);
+    assert.match(known, /示例旅伴/);
     assert.match(known, /迟到七年的信/);
     assert.match(known, /寄存柜钥匙/);
     assert.doesNotMatch(known, /NPC 计划/);

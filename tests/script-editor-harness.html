@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>剧本阅读与编辑 · 隔离验收</title><link rel="stylesheet" href="/style.css"><style>:root{--SmartThemeBodyColor:#303036;--SmartThemeBlurTintColor:#f6f5f0}body{margin:0;background:#eceae4;font-family:system-ui}#tools{max-width:240px;padding:10px}#tools button{padding:10px;margin:6px 0}#receipt{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body><nav id="tools"><strong>隔离验收 · 模拟模型</strong><button id="fail-save">下次保存失败</button><button id="reload">重新打开保存的聊天</button><pre id="receipt"></pre></nav><script type="module">
+import { DirectorApplication } from '/src/application/index.js';
+import { validateDirectorState, validateScenario, stateMatchesScenario } from '/src/domain/index.js';
+import { finalizeScenario } from '/src/domain/scenario-schema.js';
+import { nextScenarioVersion } from '/src/domain/scenario-content.js';
+import { PerChatRepository } from '/src/persistence/per-chat-repository.js';
+import { FakeOfficialAdapter } from '/tests/support/fake-official-adapter.mjs';
+import { DirectorUi } from '/src/ui/controller.js';
+import { FOG_HARBOR_SCENARIO } from '/src/scenarios/index.js';
+const key='script-editor-qa-v1';const adapter=new FakeOfficialAdapter();adapter.selectSingle('guide.png','script-qa');
+const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved){adapter.settings=saved.settings;Object.assign(adapter.currentChatMetadata(),saved.metadata);adapter.seedMessages(saved.messages);}else{const d=structuredClone(FOG_HARBOR_SCENARIO);delete d.hash;d.id='qa-editable';d.public.title='雾港 · 我的剧本';adapter.settings.importedScenarios=[finalizeScenario(d)];}
+const save=()=>localStorage.setItem(key,JSON.stringify({settings:adapter.settings,metadata:adapter.currentChatMetadata(),messages:adapter.currentMessages()}));let failSave=false;
+adapter.persistApiSettings=async value=>{if(failSave){failSave=false;throw new Error('模拟保存失败，编辑内容仍保留。');}adapter.settings=structuredClone(value);save();};
+const originalSave=adapter.saveCurrentChat.bind(adapter);adapter.saveCurrentChat=async(...args)=>{await originalSave(...args);save();};
+const repository=new PerChatRepository({adapter,validateState:validateDirectorState,validateScenario});const app=new DirectorApplication({adapter,repository}).start();
+const revise=app.reviseScenario.bind(app);app.reviseScenario=async input=>{const d=structuredClone(adapter.settings.importedScenarios.find(s=>s.id===input.id));delete d.hash;d.contentVersion=nextScenarioVersion(d.contentVersion);d.scenes[0].description='旧友在临河书店门口搬书，看见归来的你，轻轻停下手里的动作。';adapter.enqueueScenario(d);return revise(input);};
+if(!repository.load()){await app.createCampaign({scenarioId:'qa-editable',player:{name:'林雨',concept:'',relationship:'旧友',attributes:{body:2,insight:1,rapport:0}}});}
+const ui=new DirectorUi(app).mount();ui.show();await ui.perform('show-scenarios');
+const receipt=()=>{const state=repository.load(),s=adapter.settings.importedScenarios.find(s=>s.id==='qa-editable');document.querySelector('#receipt').textContent=JSON.stringify({version:'2.5.0',libraryTitle:s.public.title,libraryOpening:s.scenes[0].description,snapshotOpening:repository.loadScenario().scenes[0].description,pairValid:stateMatchesScenario(state,repository.loadScenario()),phase:state.phase,backups:adapter.settings.scenarioBackups?.length??0,reviewReady:!!app.getAuthoringJob()?.reviewReady,modelCalls:adapter.rawPrompts.length},null,2);};app.subscribe(receipt);receipt();
+document.querySelector('#fail-save').onclick=()=>{failSave=true;};document.querySelector('#reload').onclick=()=>location.reload();
+</script></body></html>

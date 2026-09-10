@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+const backup=process.argv[2];if(!backup)throw new Error('Usage: node tools/rollback.mjs BACKUP');
+const receipt=JSON.parse(fs.readFileSync(path.join(backup,'receipt.json'))),sha=value=>crypto.createHash('sha256').update(value).digest('hex');
+const settingsFile=path.join(receipt.host,'data/default-user/settings.json'),settings=JSON.parse(fs.readFileSync(settingsFile)),old=JSON.parse(fs.readFileSync(path.join(backup,'settings.json')));
+if(sha(JSON.stringify(settings.extension_settings['candy-w-rpg-console']))!==receipt.extensionHash)throw new Error('导演数据在升级后已有修改；不能覆盖新进度。请先导出并进行数据对照。');
+for(const[file,hash]of Object.entries(receipt.installedHashes))if(!fs.existsSync(path.join(receipt.target,file))||sha(fs.readFileSync(path.join(receipt.target,file)))!==hash)throw new Error('安装文件已有后续修改，停止回滚。');
+for(const[file,hash]of Object.entries(receipt.installedChatHashes??{}))if(sha(fs.readFileSync(file))!==hash)throw new Error('聊天已有新进度，停止回滚。');
+const recovery=path.join(backup,'before-rollback');if(fs.existsSync(recovery))throw new Error('此回滚已执行或留有恢复点');fs.mkdirSync(recovery,{mode:0o700});fs.cpSync(receipt.target,path.join(recovery,'extension'),{recursive:true});fs.cpSync(receipt.serverTarget,path.join(recovery,'server'),{recursive:true});fs.copyFileSync(settingsFile,path.join(recovery,'settings.json'));
+fs.rmSync(receipt.target,{recursive:true,force:true});fs.cpSync(path.join(backup,'extension'),receipt.target,{recursive:true});fs.rmSync(receipt.serverTarget,{recursive:true,force:true});if(receipt.serverExisted)fs.cpSync(path.join(backup,'server'),receipt.serverTarget,{recursive:true});
+settings.extension_settings['candy-w-rpg-console']=old.extension_settings['candy-w-rpg-console'];fs.writeFileSync(settingsFile+'.candy-rollback',JSON.stringify(settings,null,4),{mode:0o600});fs.renameSync(settingsFile+'.candy-rollback',settingsFile);
+for(const{file,backupName}of receipt.chatFiles)fs.copyFileSync(path.join(backup,backupName),file);
+console.log('Paired rollback complete. Tavern proxy configuration was not modified. Restart Tavern.');

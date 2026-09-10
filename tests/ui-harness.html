@@ -122,6 +122,28 @@
             await settleAutomaticRequest();
         }
 
+        if (initial === 'authoring-recovery') {
+            const draft = structuredClone(FOG_HARBOR_SCENARIO); delete draft.hash; draft.id = 'recovery-script';
+            adapter.enqueueScenario(draft);
+            const validScene = adapter.rawDecisions[2]; adapter.rawDecisions.splice(2, 1, '```invalid```', '```invalid```', '```invalid```');
+            try { await app.writeCustomScenario({title:'恢复测试剧本',premise:'在风暴前调查海港。',tone:'悬疑',setting:'海港',opening:'风暴将至。',coreTruth:'潮门损坏。',npcGoals:'安全撤离。',timePressure:'零点之前。',endings:'修复或离开。'}); } catch {}
+            adapter.rawDecisions.unshift(validScene);
+        }
+
+        if (initial === 'fact-flow-recovery') {
+            const draft = structuredClone(FOG_HARBOR_SCENARIO); delete draft.hash; draft.id = 'fact-flow-recovery';
+            adapter.enqueueScenario(draft); const plan = JSON.parse(adapter.rawDecisions.shift()); adapter.rawDecisions = [];
+            draft.scenes[0].moves[0].hiddenPatch.setVariables.first_inspection = true;
+            draft.scenes[0].moves[0].conditions.notFacts.push('first_inspection');
+            draft.scenes[1].moves[0].conditions.allFacts.push('first_inspection');
+            const identity = adapter.currentChatIdentity();
+            adapter.settings.authoringJobs = [{ id:'fact-flow-job', owner:JSON.stringify([identity.characterId,identity.chatId]),
+                source:{kind:'custom',brief:{title:'已写完剧本的引用修正',premise:'在风暴前调查海港。',tone:'悬疑',setting:'海港',opening:'风暴将至。',coreTruth:'潮门损坏。',npcGoals:'安全撤离。',timePressure:'零点之前。',endings:'修复或离开。'},worldFacts:''},
+                plan,scenes:draft.scenes,stage:'完整校验',error:'第 1、2 个场景引用了没有登记为发生事实的编号。',code:'INVALID_REFERENCES',finalFailed:true }];
+            const corrected = structuredClone(draft.scenes[0]); corrected.moves[0].hiddenPatch.occurredFactIds.push('first_inspection');
+            adapter.enqueueRaw(JSON.stringify(corrected));
+        }
+
         document.body.dataset.clean = String(query.get('clean') === '1');
         const ui = new DirectorUi(app).mount();
         ui.show();

@@ -1,0 +1,17 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+*.jsonl
+*.pem
+*.key
+settings.json
+secrets.json
+data/
+chats/
+backups/
+artifacts/
+playwright-report/
+test-results/

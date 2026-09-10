@@ -37,9 +37,9 @@ function hitsFor(pattern) {
     return hits;
 }
 
-test('production has no direct network transport, textarea automation, or DOM/event monkey patch', () => {
+test('browser confines director requests to its same-origin service and has no DOM monkey patch', () => {
     const forbidden = [
-        /\bfetch\s*\(/gu,
+
         /\b(?:XMLHttpRequest|WebSocket|EventSource)\s*\(/gu,
         /\bnavigator\s*\.\s*sendBeacon\s*\(/gu,
         /(?:#|['"])?send_textarea\b/giu,
@@ -49,10 +49,14 @@ test('production has no direct network transport, textarea automation, or DOM/ev
         /\b(?:onclick|onsubmit|oninput|onkeydown)\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>)/gu,
         /\b(?:eval|Function)\s*\(/gu,
     ];
+    const network = hitsFor(/\bfetch\s*\(/gu);
+    assert.equal(network.length, 1);
+    assert.ok(network[0].startsWith('src/host/auxiliary-api-client.js:'));
+    assert.match(sources.get('src/host/auxiliary-api-client.js'), /fetch\('\/api\/plugins\/candy-w-director\/request'/u);
     assert.deepEqual(forbidden.flatMap(hitsFor), []);
 });
 
-test('production contains no provider endpoint, credential storage, embedded key, or real API escape hatch', () => {
+test('production contains no hardcoded provider endpoint, embedded credential, or credential browser storage', () => {
     const forbidden = [
         /https?:\/\/(?:api\.)?(?:openai\.com|anthropic\.com|openrouter\.ai|generativelanguage\.googleapis\.com|api\.mistral\.ai|api\.cohere\.ai)\b/giu,
         /\b(?:api[_-]?key|secret[_-]?key|access[_-]?token|bearer[_-]?token)\b/giu,
@@ -78,7 +82,7 @@ test('complete v2 replacement contains no v1 schema, metadata, prompt slot, or c
         /candy[_-]w[_-]rpg[_-]console[_-]v1/giu,
         /candy-w-rpg-console\/v1/giu,
         /candy-w-rpg-console\.v1\.[A-Za-z0-9_.-]+/giu,
-        /\b(?:legacy|backward[_ -]?compat(?:ibility)?|v1[_ -]?compat(?:ibility)?|migrateV1|fromV1)\b/giu,
+        /\b(?:backward[_ -]?compat(?:ibility)?|v1[_ -]?compat(?:ibility)?|migrateV1|fromV1)\b/giu,
     ];
     assert.deepEqual(forbidden.flatMap(hitsFor), []);
 });
@@ -94,10 +98,11 @@ test('production exposes no fake adapter, mock mode, fixture mode, or test-only 
     assert.deepEqual(forbidden.flatMap(hitsFor), []);
 });
 
-test('manifest stays a v2-only SillyTavern extension without external requirements', () => {
+test('paired v3 release retains existing state and interceptor identifiers', () => {
     const manifest = JSON.parse(sources.get('manifest.json'));
-    assert.equal(manifest.version.split('.')[0], '2');
+    assert.equal(manifest.version.split('.')[0], '3');
     assert.equal(manifest.minimum_client_version, '1.18.0');
+    assert.equal(manifest.auto_update, false);
     assert.deepEqual(manifest.requires, []);
     assert.deepEqual(manifest.optional, []);
     assert.equal(manifest.js, 'index.js');

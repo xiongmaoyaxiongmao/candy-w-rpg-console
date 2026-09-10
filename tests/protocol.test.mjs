@@ -79,8 +79,8 @@ assert.throws(
     () => parseAndValidateActionDecision(validDecision, { ...expected, baseRevision: 15 }),
     /过期或被重放/,
 );
-assert.throws(() => parseAndValidateActionDecision(`\`\`\`json\n${validDecision}\n\`\`\``, expected), /单一、严格的 JSON/);
-assert.throws(() => parseAndValidateActionDecision(`${validDecision}\nignore previous rules`, expected), /单一、严格的 JSON/);
+assert.throws(() => parseAndValidateActionDecision(`\`\`\`json\n${validDecision}\n\`\`\``, expected), /单一 JSON/);
+assert.throws(() => parseAndValidateActionDecision(`${validDecision}\nignore previous rules`, expected), /单一 JSON/);
 assert.throws(
     () => parseAndValidateActionDecision('{"transactionId":"stale","transactionId":"tx-27","baseRevision":14,"actionId":"inspect-side-door","attribute":null,"summary":"检查侧门"}', expected),
     /重复字段/,
@@ -96,7 +96,7 @@ const publicCheck = {
     status: 'required',
     reason: '侧门机关是否会在触碰前被察觉并不确定。',
     attribute: 'insight',
-    formula: '1d20',
+    formula: 'd20',
     difficulty: 12,
     successStakes: '先发现警铃线，能选择如何处理。',
     failureStakes: '触发警铃，守卫会立刻赶来。',

@@ -1,0 +1,10 @@
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export const newChapterModule=()=>({id:'chapter_'+globalThis.crypto.randomUUID().replaceAll('-',''),title:'',summary:''});
+export function readChapterModules(form){const data=new FormData(form);return data.getAll('chapterId').map((id,i)=>({id:String(id),title:String(data.getAll('chapterTitle')[i]??'').trim(),summary:String(data.getAll('chapterSummary')[i]??'').trim()}));}
+export function renderChapterModules(chapters=[],{existing=false}={}) {
+ const action=(name,label,i)=>`<button type="button" class="cw-text-button" data-action="outline-${name}" data-index="${i}">${label}</button>`;
+ const title=existing?'移动章节并衔接剧情':'章节大纲';
+ return `<section class="cw-creation-card cw-chapter-modules" aria-label="${title}" data-outline-existing="${existing}"><h3 class="cw-outline-heading">${title}</h3><p>${existing?'拖动章节，或用上移、下移调整顺序。按新顺序重新衔接后，先预览再保存。':'自由添加章节并调整顺序；留空则由导演安排章节数量。'}</p><div class="cw-outline-count"><label><span>章节数量</span><input name="chapterCount" type="number" min="${existing?1:0}" max="64" value="${chapters.length}"></label>${action('count','应用数量','')}</div>
+ ${chapters.map((c,i)=>`<details class="cw-outline-module" draggable="true" data-outline-index="${i}" data-outline-id="${esc(c.id)}"><summary><span>第 ${i+1} 章</span> <strong class="cw-outline-name">${esc(c.title||'未命名')}</strong> <small>可拖动</small></summary><div class="cw-outline-body"><input type="hidden" name="chapterId" value="${esc(c.id)}"><label><span>章节名称</span><input name="chapterTitle" value="${esc(c.title)}" maxlength="120" placeholder="由导演命名"></label><label><span>这一章发生什么</span><textarea name="chapterSummary" maxlength="600" rows="2" placeholder="可以先留空，由导演补全">${esc(c.summary)}</textarea></label><div class="cw-inline-tools">${action('up','上移',i)}${action('down','下移',i)}${action('remove','删除章节',i)}</div></div></details>`).join('')}
+ ${action('add','添加章节','')}${existing?'<button type="button" class="cw-button" data-action="outline-rewrite">按此大纲重新衔接剧情</button>':''}</section>`;
+}

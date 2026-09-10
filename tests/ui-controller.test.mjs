@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DirectorUi, campaignInputFromFormData, customScenarioInputFromFormData, scenarioRevisionInputFromFormData, worldInfoScenarioInputFromFormData } from '../src/ui/controller.js';
+import { DirectorUi, campaignInputFromFormData, customScenarioInputFromFormData } from '../src/ui/controller.js';
 
 class FakeApplication {
     constructor() {
@@ -21,7 +21,6 @@ class FakeApplication {
     async importSave(input) { this.calls.push(['importSave', input]); }
     async writeCustomScenario(input) { this.calls.push(['writeCustomScenario', input]); return { id: 'written-story', title: input.title }; }
     async writeScenarioFromWorldInfo(input) { this.calls.push(['writeScenarioFromWorldInfo', input]); return { id: 'world-story', title: input.title }; }
-    async reviseScenario(input) { this.calls.push(['reviseScenario', input]); return { id: input.scenarioId, title: '修订后的故事' }; }
     exportSave() { this.calls.push(['exportSave']); return { format: 'save' }; }
     setEnabled(enabled) { this.calls.push(['setEnabled', enabled]); }
 }
@@ -69,6 +68,7 @@ test('custom scenario form parser keeps only the authored brief fields', () => {
     form.set('endings', ' 找回列车、牺牲返航或留在月背。 ');
     form.set('unrelated', 'must not cross the UI boundary');
     assert.deepEqual(customScenarioInputFromFormData(form), {
+        anchors: '', useWorldInfo: false,
         title: '月背列车失踪案',
         premise: '失踪案从终点站开始。',
         tone: '温柔惊悚',
@@ -81,28 +81,15 @@ test('custom scenario form parser keeps only the authored brief fields', () => {
     });
 });
 
-test('world info form parser keeps only desired outcome and native scan anchors', () => {
+test('combined form retains the opening and explicit world toggle', () => {
     const form = new FormData();
-    form.set('title', ' 雾港最后一道潮门 ');
-    form.set('outcome', ' 在零点前决定洪水流向。 ');
-    form.set('anchors', ' 雾港, 潮门, 旧港 ');
-    form.set('hidden', 'must not cross the UI boundary');
-    assert.deepEqual(worldInfoScenarioInputFromFormData(form), {
-        title: '雾港最后一道潮门',
-        outcome: '在零点前决定洪水流向。',
-        anchors: '雾港, 潮门, 旧港',
-    });
-});
-
-test('scenario revision parser keeps only a target id and requested changes', () => {
-    const form = new FormData();
-    form.set('scenarioId', 'fog-harbor-revision');
-    form.set('instruction', '把结局改成救援旧港。');
-    form.set('hidden', 'must not cross the UI boundary');
-    assert.deepEqual(scenarioRevisionInputFromFormData(form), {
-        scenarioId: 'fog-harbor-revision',
-        instruction: '把结局改成救援旧港。',
-    });
+    form.set('premise', ' 重开书店 '); form.set('opening', ' 雨停后，旧友正搬书。 ');
+    form.set('useWorldInfo', 'on'); form.set('anchors', ' 书店，旧友 ');
+    form.set('hidden', 'not a form field');
+    const brief = customScenarioInputFromFormData(form);
+    assert.equal(brief.useWorldInfo, true); assert.equal(brief.opening, '雨停后，旧友正搬书。');
+    assert.equal(brief.anchors, '书店，旧友'); assert.equal(Object.hasOwn(brief, 'hidden'), false);
+    form.delete('useWorldInfo'); assert.equal(customScenarioInputFromFormData(form).useWorldInfo, false);
 });
 
 test('controller invokes only the application command contract', async () => {
@@ -134,7 +121,7 @@ test('controller invokes only the application command contract', async () => {
     }
 });
 
-test('entering another story from an ending clears the completed per-chat campaign first', async () => {
+test('browsing the library never clears a completed campaign', async () => {
     const calls = [];
     const application = {
         getViewModel: () => ({ enabled: true, host: { kind: 'single' }, phase: 'ended' }),
@@ -145,6 +132,6 @@ test('entering another story from an ending clears the completed per-chat campai
     const ui = new DirectorUi(application);
     ui.render = () => {};
     await ui.perform('show-scenarios');
-    assert.deepEqual(calls, ['endCampaign']);
+    assert.deepEqual(calls, []);
     assert.equal(ui.screen, 'scenarios');
 });

@@ -1,13 +1,15 @@
-import { compileContextBudget, DEFAULT_CONTEXT_MAX_CHARS } from '../compilation/context-budget.js';
+import { validSkillCheck } from '../domain/skill-check.js';
+import { contractIssue } from '../domain/json-contract.js';
+import { ContextBudgetError } from '../compilation/context-budget.js';
+import { SCENARIO_DRAFT_CONTRACT } from '../domain/scenario-contract.js';
+const CHECK_FIELDS = SCENARIO_DRAFT_CONTRACT.properties.checks.items.properties;
 import {
     assertExactKeys,
     assertKeyShape,
     assertSafeInteger,
-    cleanText,
     fail,
     promptJson,
     safeIdentifier,
-    stableUnique,
 } from './validation.js';
 
 const CODE = 'INVALID_PERFORMANCE_PROTOCOL';
@@ -17,14 +19,11 @@ function readTextList(value, label, { minItems = 0, maxItems, maxChars }) {
     if (!Array.isArray(value) || value.length < minItems || value.length > maxItems) {
         fail(`${label}必须包含 ${minItems} 到 ${maxItems} 项。`, CODE);
     }
-    const cleaned = value.map((item, index) => cleanText(item, {
-        label: `${label}[${index}]`,
-        minChars: 1,
-        maxChars,
-        multiline: false,
-        code: CODE,
-    }));
-    return stableUnique(cleaned);
+    for (const [index, item] of value.entries()) {
+        const issue = contractIssue(item, { type: 'string', minLength: 1, maxLength: maxChars }, `${label}[${index}]`);
+        if (issue) fail(issue, CODE);
+    }
+    return [...new Set(value)];
 }
 
 function readRoll(value) {
@@ -41,6 +40,7 @@ function readRoll(value) {
 
 function readPublicCheck(value) {
     if (value === null) return null;
+    if (value.skill) { if (!validSkillCheck(value)) fail('技能判定投影无效。', CODE); return Object.freeze(structuredClone(value)); }
     assertExactKeys(value, [
         'id',
         'status',
@@ -62,15 +62,19 @@ function readPublicCheck(value) {
     if (roll && roll.outcome !== (roll.total >= difficulty ? 'success' : 'failure')) {
         fail('check.roll.outcome 与总点数和难度不一致。', CODE);
     }
+    for (const field of ['reason', 'formula', 'successStakes', 'failureStakes']) {
+        const issue = contractIssue(value[field], CHECK_FIELDS[field], `check.${field}`);
+        if (issue) fail(issue, CODE);
+    }
     return Object.freeze({
         id: safeIdentifier(value.id, 'check.id', CODE),
         status,
-        reason: cleanText(value.reason, { label: 'check.reason', minChars: 1, maxChars: 360, code: CODE }),
+        reason: value.reason,
         attribute: safeIdentifier(value.attribute, 'check.attribute', CODE),
-        formula: cleanText(value.formula, { label: 'check.formula', minChars: 1, maxChars: 80, code: CODE }),
+        formula: value.formula,
         difficulty,
-        successStakes: cleanText(value.successStakes, { label: 'check.successStakes', minChars: 1, maxChars: 360, code: CODE }),
-        failureStakes: cleanText(value.failureStakes, { label: 'check.failureStakes', minChars: 1, maxChars: 360, code: CODE }),
+        successStakes: value.successStakes,
+        failureStakes: value.failureStakes,
         roll,
     });
 }
@@ -83,13 +87,13 @@ function readPublicCheck(value) {
  * and sanitized fields before crossing this boundary.
  */
 export function buildPerformanceDirective(input, options = {}) {
-    assertExactKeys(input, ['publicFacts', 'mustHappen', 'forbiddenTopics', 'check'], '演出指令输入', CODE);
+    assertKeyShape(input, { required: ['publicFacts', 'mustHappen', 'forbiddenTopics', 'check'], optional: ['playerState'] }, '演出指令输入', CODE);
     assertKeyShape(options, { required: [], optional: ['maxChars'] }, '演出指令选项', CODE);
     const maxChars = Object.prototype.hasOwnProperty.call(options, 'maxChars')
         ? assertSafeInteger(options.maxChars, 'maxChars', { min: 1, max: 100000, code: CODE })
-        : DEFAULT_CONTEXT_MAX_CHARS;
-    const publicFacts = readTextList(input.publicFacts, 'publicFacts', { maxItems: 64, maxChars: 500 });
-    const mustHappen = readTextList(input.mustHappen, 'mustHappen', { minItems: 1, maxItems: 32, maxChars: 500 });
+        : 100000;
+    const publicFacts = readTextList(input.publicFacts, 'publicFacts', { maxItems: Number.MAX_SAFE_INTEGER, maxChars: 1200 });
+    const mustHappen = readTextList(input.mustHappen, 'mustHappen', { minItems: 1, maxItems: Number.MAX_SAFE_INTEGER, maxChars: 1200 });
     const forbiddenTopics = readTextList(input.forbiddenTopics, 'forbiddenTopics', { maxItems: 32, maxChars: 240 });
     const check = readPublicCheck(input.check);
 
@@ -105,7 +109,9 @@ export function buildPerformanceDirective(input, options = {}) {
         ].join('\n'),
     }];
     const optional = publicFacts.map((fact, index) => ({ id: `public-fact-${index}`, text: `- ${promptJson(fact)}` }));
+    const playerState = input.playerState === undefined ? [] : readTextList(input.playerState, 'playerState', { maxItems: 240, maxChars: 500 });
     const tail = [
+        ...Array.from({ length: Math.ceil(playerState.length / 24) }, (_, index) => ({ id: `player-state-${index}`, text: `<player_state>\n${promptJson(playerState.slice(index * 24, (index + 1) * 24))}\n</player_state>\nplayer_state 是玩家配置规则结算后的数值、技能和反应，必须据此演出；不能擅自恢复资源、宣称未学会的技能已经学会，或重复执行数值增减。用剧情表现变化，不要照抄规则或替玩家作选择。` })),
         { id: 'public-facts-end', text: '</public_facts>' },
         { id: 'must-happen', text: `<must_happen>\n${promptJson(mustHappen)}\n</must_happen>` },
         { id: 'public-check', text: `<public_check>\n${promptJson(check)}\n</public_check>` },
@@ -119,10 +125,9 @@ export function buildPerformanceDirective(input, options = {}) {
             ].join('\n'),
         },
     ];
-    return compileContextBudget(
-        { head, optional, tail },
-        { maxChars, omissionLabel: '[已按上下文预算省略 {count} 项较低优先级公开事实]' },
-    ).text;
+    const complete = [...head, ...optional, ...tail].map(section => section.text).join('\n');
+    if (complete.length > maxChars) throw new ContextBudgetError(`本轮必要内容共 ${complete.length} 字符，超过 ${maxChars} 字符预算；没有删减场景或后果。`, { maxChars, requiredLength: complete.length });
+    return complete;
 }
 
 const HIDDEN_MARKERS = [
@@ -144,7 +149,7 @@ function comparable(value) {
  * state out of the visible generation prompt.
  */
 export function validatePerformanceMessage(message, options = {}) {
-    assertKeyShape(options, { required: [], optional: ['maxChars', 'forbiddenPhrases'] }, '演出消息校验选项', CODE);
+    assertKeyShape(options, { required: [], optional: ['maxChars', 'forbiddenPhrases', 'publicContent'] }, '演出消息校验选项', CODE);
     if (typeof message !== 'string') fail('演出消息必须是字符串。', CODE);
     const trimmed = message.trim();
     if (!trimmed) fail('演出消息不能为空。', CODE);
@@ -156,11 +161,18 @@ export function validatePerformanceMessage(message, options = {}) {
     if (HIDDEN_MARKERS.some(pattern => pattern.test(trimmed))) fail('演出消息包含隐藏导演标记，不能提交。', CODE);
 
     const forbiddenPhrases = Object.prototype.hasOwnProperty.call(options, 'forbiddenPhrases')
-        ? readTextList(options.forbiddenPhrases, 'forbiddenPhrases', { maxItems: 64, maxChars: 240 })
+        ? readTextList(options.forbiddenPhrases, 'forbiddenPhrases', { maxItems: Number.MAX_SAFE_INTEGER, maxChars: 240 })
         : [];
     const normalizedMessage = comparable(trimmed);
+    const publicContent = Object.prototype.hasOwnProperty.call(options, 'publicContent')
+        ? readTextList(options.publicContent, 'publicContent', { maxItems: Number.MAX_SAFE_INTEGER, maxChars: 100000 }).map(comparable)
+        : [];
     for (const phrase of forbiddenPhrases) {
-        if (normalizedMessage.includes(comparable(phrase))) fail('演出消息命中本轮明确禁止短语，不能提交。', CODE);
+        const normalizedPhrase = comparable(phrase);
+        // Authored leak cues can overlap normal scene vocabulary. Only trusted public
+        // turn content exempts a cue, never the generated reply or raw user input.
+        if (publicContent.some(content => content.includes(normalizedPhrase))) continue;
+        if (normalizedMessage.includes(normalizedPhrase)) fail(`演出消息命中本轮明确禁止短语「${phrase}」，不能提交。`, CODE);
     }
     return trimmed;
 }

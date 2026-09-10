@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>角色数值 · 隔离验收</title><link rel="stylesheet" href="/style.css"><style>body{margin:0;background:#eceae4;--SmartThemeBodyColor:#303036;--SmartThemeBlurTintColor:#f6f5f0;font-family:system-ui}#tools{position:fixed;top:8px;left:8px;max-width:190px;display:grid;gap:8px}#tools button{padding:10px}#receipt{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}body.mobile #tools{position:relative;max-width:100%;padding:8px}</style></head><body><nav id="tools"><strong>隔离验收 · 模拟模型</strong><button id="finish">完成当前演出</button><button id="act">测试：奔跑并练习</button><button id="rename">测试：采用化名莲灯</button><button id="refresh">重新打开保存的聊天</button><pre id="receipt" aria-live="polite"></pre></nav><script type="module">
+import { DirectorApplication } from '/src/application/index.js';
+import { validateDirectorState, validateScenario } from '/src/domain/index.js';
+import { PerChatRepository } from '/src/persistence/per-chat-repository.js';
+import { FakeOfficialAdapter } from '/tests/support/fake-official-adapter.mjs';
+import { DirectorUi } from '/src/ui/controller.js';
+const storageKey='candy-player-identity-qa-v1';
+const adapter=new FakeOfficialAdapter();adapter.selectSingle('qa-guide.png','player-qa');
+const saved=localStorage.getItem(storageKey);if(saved){const data=JSON.parse(saved);Object.assign(adapter.currentChatMetadata(),data.metadata);adapter.seedMessages(data.messages);}
+const save=()=>localStorage.setItem(storageKey,JSON.stringify({metadata:adapter.currentChatMetadata(),messages:adapter.currentMessages()}));
+const originalSave=adapter.saveCurrentChat.bind(adapter);adapter.saveCurrentChat=async(...args)=>{await originalSave(...args);save();};
+const repository=new PerChatRepository({adapter,validateState:validateDirectorState,validateScenario});
+const app=new DirectorApplication({adapter,repository}).start();const ui=new DirectorUi(app).mount();ui.show();
+if(!repository.load())await ui.perform('show-scenarios');
+const receipt=()=>{const s=repository.load();document.querySelector('#receipt').textContent=s?JSON.stringify({phase:s.phase,revision:s.revision,name:s.player.name,values:s.player.progression?.entries.map(e=>({name:e.name,value:e.value,learnAt:e.learnAt})),saved:!!localStorage.getItem(storageKey)},null,2):'尚未建立旅程';};
+app.subscribe(receipt);receipt();
+document.querySelector('#finish').onclick=async()=>{await adapter.completeGeneration('你来到暴雨中的海关门前，同伴讲清眼前的状况。身上的疲惫可以感受到，但接下来如何行动，由你决定。');save();receipt();};
+document.querySelector('#act').onclick=async()=>{adapter.appendUser('我奔跑着去泵房，途中练习符文术。');adapter.enqueueRaw(prompt=>{const request=JSON.parse(prompt.split('<action_request>\n')[1].split('\n</action_request>')[0]);const ruleIds=request.playerState.flatMap(e=>e.rules.filter(r=>/奔跑|练习/u.test(r.condition)).map(r=>r.id));return JSON.stringify({transactionId:request.transactionId,baseRevision:request.baseRevision,nameChange:null,actionId:'gate_to_pump',attribute:null,summary:'跑去泵房并练习符文术',ruleIds});});await adapter.completeGeneration('你来到泵房前，体力的消耗令步伐慢下来，同伴也注意到了疲惫。符文终于亮起，你掌握了它的基本用法。');save();receipt();};
+document.querySelector('#rename').onclick=async()=>{adapter.appendUser('从现在起，我采用化名“莲灯”，然后去泵房。');adapter.enqueueRaw(prompt=>{const request=JSON.parse(prompt.split('<action_request>\n')[1].split('\n</action_request>')[0]);return JSON.stringify({transactionId:request.transactionId,baseRevision:request.baseRevision,actionId:'gate_to_pump',attribute:null,summary:'采用化名并去泵房',nameChange:{name:'莲灯',source:'action',evidence:'我采用化名“莲灯”'},...(request.playerState?{ruleIds:[]}:{} )});});await adapter.completeGeneration('“莲灯。”同伴记下你的新称呼，陪你进入泵房，把下一步留给你决定。');save();receipt();};
+document.querySelector('#refresh').onclick=()=>location.reload();
+</script></body></html>

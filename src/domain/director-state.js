@@ -1,3 +1,9 @@
+import { skillCheck, validSkillCheck, resolveSkillCheck, skillResultFact, usableSkills } from './skill-check.js';
+import { MOVE_CONTRACT, SCENARIO_DRAFT_CONTRACT } from './scenario-contract.js';
+const MAX_TURN_EVENTS = MOVE_CONTRACT.properties.mustHappen.maxItems + SCENARIO_DRAFT_CONTRACT.properties.clocks.items.properties.thresholds.maxItems + 1;
+import { selectPublicKnowledge } from './scenario-context.js';
+import { validateNameHistory, validateNameChange, renamePlayer } from './player-identity.js';
+import { validateProgression, assertSelectedRules, settleProgression } from './player-progression.js';
 import { assertScenario } from './scenario-schema.js';
 
 export const DIRECTOR_STATE_SCHEMA = 'candy-w-rpg-director/state/v2';
@@ -81,17 +87,20 @@ function endingById(scenario, endingId) {
 }
 
 function validPlayer(value) {
-    return exact(value, ['name', 'concept', 'relationship', 'attributes'])
+    return exact(value, ['name', 'concept', 'relationship', 'attributes', ...(own(value, 'progression') ? ['progression'] : []), ...(own(value, 'nameHistory') ? ['nameHistory'] : [])])
+        && (!own(value, 'nameHistory') || validateNameHistory(value.nameHistory, value.name))
+        && (!own(value, 'progression') || validateProgression(value.progression))
         && text(value.name, 120, false)
         && text(value.concept, 600)
         && text(value.relationship, 400)
         && exact(value.attributes, ['body', 'insight', 'rapport'])
         && Object.values(value.attributes).every(item => Number.isSafeInteger(item) && item >= 0 && item <= 2)
-        && [...Object.values(value.attributes)].sort((a, b) => a - b).join(',') === '0,1,2';
+        && ['0,0,0', '0,1,2'].includes([...Object.values(value.attributes)].sort((a, b) => a - b).join(','));
 }
 
 function validPublicCheck(value) {
     if (value === null) return true;
+    if (value?.skill) return validSkillCheck(value);
     if (!exact(value, ['id', 'status', 'reason', 'attribute', 'formula', 'difficulty', 'successStakes', 'failureStakes', 'roll'])) return false;
     if (!id(value.id) || !['required', 'resolved'].includes(value.status) || !text(value.reason, 360, false)) return false;
     if (!['body', 'insight', 'rapport'].includes(value.attribute) || !text(value.formula, 40, false)) return false;
@@ -181,8 +190,10 @@ function validTurn(value) {
         && (value.moveId === null || id(value.moveId))
         && Number.isSafeInteger(value.clockAdvance)
         && value.clockAdvance >= 0
-        && exact(value.decision, ['mustHappen', 'forbiddenReveal', 'scanSeeds', 'publicPatch', 'hiddenPatch', 'nextSceneId', 'check', 'endingId'])
-        && textList(value.decision.mustHappen, 32, 600)
+        && exact(value.decision, ['mustHappen', 'forbiddenReveal', 'scanSeeds', 'publicPatch', 'hiddenPatch', 'nextSceneId', 'check', 'endingId', ...(own(value.decision, 'playerRuleIds') ? ['playerRuleIds'] : []), ...(own(value.decision, 'playerNameChange') ? ['playerNameChange'] : [])])
+        && (!own(value.decision, 'playerNameChange') || value.kind === 'action' && validateNameChange(value.decision.playerNameChange))
+        && (!own(value.decision, 'playerRuleIds') || idList(value.decision.playerRuleIds, 48))
+        && textList(value.decision.mustHappen, MAX_TURN_EVENTS, 1200)
         && value.decision.mustHappen.length > 0
         && idList(value.decision.forbiddenReveal)
         && textList(value.decision.scanSeeds, 48, 120)
@@ -242,8 +253,8 @@ export function stateMatchesScenario(value, inputScenario) {
         if (!value.public.knownClueIds.every(item => sets.clues.has(item))) return false;
         if (!value.public.itemIds.every(item => sets.items.has(item))) return false;
         if (!value.public.crisisIds.every(item => sets.crises.has(item))) return false;
-        if (value.public.pendingCheck && !scenario.checks.some(check => check.id === value.public.pendingCheck.id)) return false;
-        if (value.public.lastCheck && !scenario.checks.some(check => check.id === value.public.lastCheck.id)) return false;
+        if (value.public.pendingCheck && !checkMatchesScenario(value.public.pendingCheck, scenario)) return false;
+        if (value.public.lastCheck && !checkMatchesScenario(value.public.lastCheck, scenario)) return false;
         if (value.pendingTransaction) {
             const moveIds = new Set(scenario.scenes.flatMap(scene => scene.moves.map(move => move.id)));
             if (value.pendingTransaction.moveId !== null && !moveIds.has(value.pendingTransaction.moveId)) return false;
@@ -251,7 +262,7 @@ export function stateMatchesScenario(value, inputScenario) {
             if (value.pendingTransaction.decision.endingId !== null && !scenario.endings.some(ending => ending.id === value.pendingTransaction.decision.endingId)) return false;
             if (!value.pendingTransaction.decision.forbiddenReveal.every(secretId => secretIds.has(secretId))) return false;
             if (!value.pendingTransaction.decision.hiddenPatch.revealedSecretIds.every(secretId => secretIds.has(secretId))) return false;
-            if (value.pendingTransaction.decision.check && !scenario.checks.some(check => check.id === value.pendingTransaction.decision.check.id)) return false;
+            if (value.pendingTransaction.decision.check && !checkMatchesScenario(value.pendingTransaction.decision.check, scenario)) return false;
         }
         return true;
     } catch {
@@ -269,6 +280,10 @@ export function validateDirectorState(value) {
         if (!(value.pendingTransaction === null || validTurn(value.pendingTransaction))) return false;
         if ((value.phase === 'generating') !== (value.pendingTransaction !== null)) return false;
         if (!validPlayer(value.player) || !validPublic(value.public) || !validHidden(value.hidden) || !validHistory(value.history)) return false;
+        if (value.pendingTransaction?.decision.playerRuleIds) {
+            if (!value.player.progression || value.pendingTransaction.kind !== 'action') return false;
+            assertSelectedRules(value.player.progression, value.pendingTransaction.decision.playerRuleIds);
+        }
         if (value.phase === 'awaiting_check' && value.public.pendingCheck?.status !== 'required') return false;
         if (value.phase !== 'awaiting_check' && value.public.pendingCheck !== null) return false;
         if ((value.phase === 'ended') !== (value.hidden.endingId !== null)) return false;
@@ -305,7 +320,7 @@ function publicClock(scenario, minute, firedThresholdIds = []) {
 
 export function createDirectorState(inputScenario, player, deps = {}) {
     const scenario = assertScenario(inputScenario);
-    if (!validPlayer(player)) throw new Error('玩家设定必须包含称呼、设定、关系与唯一分配的 +2/+1/+0 属性。');
+    if (!validPlayer(player)) throw new Error('玩家设定必须包含称呼、设定、关系与有效的角色数值。');
     const scene = sceneById(scenario, scenario.startSceneId);
     const clock = scenario.clocks[0];
     const state = {
@@ -323,7 +338,9 @@ export function createDirectorState(inputScenario, player, deps = {}) {
             knownPeopleIds: [],
             knownClueIds: [],
             itemIds: [],
-            crisisIds: ['crisis_tide'],
+            // Knowledge definitions are a catalog, not facts already revealed.
+            // Crisis references become public through a committed move's projection.
+            crisisIds: [],
             perceptibleClock: publicClock(scenario, clock.startMinute),
             pendingCheck: null,
             lastCheck: null,
@@ -341,7 +358,9 @@ export function createDirectorState(inputScenario, player, deps = {}) {
         history: [],
     };
     void deps;
-    return assertState(state);
+    assertState(state);
+    if (!stateMatchesScenario(state, scenario)) throw new Error('无法创建旅程：开场状态与所选剧本不一致，未保存。');
+    return state;
 }
 
 function conditionsMet(state, conditions) {
@@ -378,9 +397,9 @@ function publicPatchFromMove(move) {
     };
 }
 
-function hiddenPatchFromMove(move) {
+function hiddenPatchFromMove(move, scenario) {
     return {
-        occurredFactIds: [...move.hiddenPatch.occurredFactIds],
+        occurredFactIds: unique([...move.hiddenPatch.occurredFactIds, ...(move.nextSceneId && !move.checkId ? sceneById(scenario, move.nextSceneId).entryFacts : [])]),
         revealedSecretIds: [...move.revealSecretIds],
         setVariables: clone(move.hiddenPatch.setVariables),
     };
@@ -401,13 +420,10 @@ function checkProjection(check, status = 'required', roll = null) {
 }
 
 function scanSeedsFor(scenario, state, move, nextSceneId) {
-    const current = sceneById(scenario, state.hidden.currentSceneId);
-    const next = nextSceneId ? sceneById(scenario, nextSceneId) : null;
-    const people = scenario.knowledge.people.filter(item => move.publicPatch.knownPeopleIds.includes(item.id)).flatMap(item => item.anchors);
-    const clues = scenario.knowledge.clues.filter(item => move.publicPatch.knownClueIds.includes(item.id)).flatMap(item => item.anchors);
-    const items = scenario.knowledge.items.filter(item => move.publicPatch.itemIds.includes(item.id)).flatMap(item => item.anchors);
-    const crises = scenario.knowledge.crises.filter(item => move.publicPatch.crisisIds.includes(item.id)).flatMap(item => item.anchors);
-    return unique([...(next ?? current).anchors, ...people, ...clues, ...items, ...crises]);
+    const scene = sceneById(scenario, nextSceneId ?? state.hidden.currentSceneId);
+    const newlyPublic = Object.fromEntries(['knownPeopleIds', 'knownClueIds', 'itemIds', 'crisisIds'].map(field => [field, move.publicPatch[field].filter(id => !state.public[field].includes(id))]));
+    const selected = selectPublicKnowledge(scenario, state.public, { sceneId: scene.id, newlyPublic });
+    return unique([...scene.anchors, ...['people', 'clues', 'items', 'crises'].flatMap(kind => selected[kind].flatMap(entry => entry.anchors))]);
 }
 
 function pendingClockWarnings(scenario, state, advance, reachesEnding) {
@@ -421,13 +437,13 @@ function pendingClockWarnings(scenario, state, advance, reachesEnding) {
         .map(threshold => `世界时钟事件必须在本轮发生并可被玩家感知：${threshold.publicWarning}`);
 }
 
-function prepare(state, scenario, { kind, move = null, mustHappen, check = null, preparedId = null, deps = {} }) {
+function prepare(state, scenario, { kind, move = null, mustHappen, check = null, preparedId = null, playerRuleIds, playerNameChange, deps = {} }) {
     assertState(state);
     if (state.phase === 'generating' || state.phase === 'awaiting_check' || state.phase === 'ended') throw new Error('当前导演阶段不能准备新的演出。');
-    const nextSceneId = move?.nextSceneId ?? null;
-    const clockWarnings = pendingClockWarnings(scenario, state, move?.clockAdvance ?? 0, Boolean(move?.endingId));
+    const nextSceneId = check?.status === 'required' ? null : move?.nextSceneId ?? null;
+    const clockWarnings = pendingClockWarnings(scenario, state, move?.clockAdvance ?? 0, check?.status !== 'required' && Boolean(move?.endingId));
     const requiredEvents = [...mustHappen, ...clockWarnings];
-    if (requiredEvents.length > 32) throw new Error('本轮强制剧情事件超过协议上限，剧本必须缩短单轮跨越。');
+    if (requiredEvents.length > MAX_TURN_EVENTS) throw new Error('本轮强制剧情事件超过协议上限，剧本必须缩短单轮跨越。');
     const turn = {
         protocol: 'candy-w-rpg-director/prepared-turn/v2',
         version: 2,
@@ -439,13 +455,15 @@ function prepare(state, scenario, { kind, move = null, mustHappen, check = null,
         clockAdvance: move?.clockAdvance ?? 0,
         decision: {
             mustHappen: requiredEvents,
+            ...(playerNameChange === undefined ? {} : { playerNameChange: clone(playerNameChange) }),
+            ...(playerRuleIds === undefined ? {} : { playerRuleIds: [...playerRuleIds] }),
             forbiddenReveal: scenario.secrets.filter(secret => !state.hidden.revealedSecretIds.includes(secret.id) && !(move?.revealSecretIds ?? []).includes(secret.id)).map(secret => secret.id),
             scanSeeds: move ? scanSeedsFor(scenario, state, move, nextSceneId) : [...sceneById(scenario, state.hidden.currentSceneId).anchors],
             publicPatch: move ? publicPatchFromMove(move) : { objective: null, knownPeopleIds: [], knownClueIds: [], itemIds: [], crisisIds: [] },
-            hiddenPatch: move ? hiddenPatchFromMove(move) : { occurredFactIds: [], revealedSecretIds: [], setVariables: {} },
+            hiddenPatch: move ? hiddenPatchFromMove(move, scenario) : { occurredFactIds: [], revealedSecretIds: [], setVariables: {} },
             nextSceneId,
             check,
-            endingId: move?.endingId ?? null,
+            endingId: check?.status === 'required' ? null : move?.endingId ?? null,
         },
         createdAt: now(deps),
     };
@@ -475,21 +493,38 @@ export function prepareActionTurn(inputState, inputScenario, classification, dep
     const state = assertState(clone(inputState));
     const scenario = assertScenario(inputScenario);
     if (state.phase !== 'playing') throw new Error('当前旅程不能接受新的玩家行动。');
-    if (!exact(classification, ['transactionId', 'baseRevision', 'actionId', 'attribute', 'summary'])) throw new Error('行动分类格式无效。');
+    if (!exact(classification, ['transactionId', 'baseRevision', 'actionId', 'attribute', 'summary', ...(state.player.progression ? ['ruleIds'] : []), ...(own(classification, 'nameChange') ? ['nameChange'] : []), ...(own(classification,'skillId') ? ['skillId'] : [])])) throw new Error('行动分类格式无效。');
     if (!id(classification.transactionId) || !id(classification.actionId) || !text(classification.summary, 280, false)) throw new Error('行动分类的事务、动作或摘要无效。');
     if (classification.attribute !== null && !['body', 'insight', 'rapport'].includes(classification.attribute)) throw new Error('行动分类属性无效。');
     if (classification.baseRevision !== state.revision) throw new Error('行动分类绑定了过期 revision。');
+    if (own(classification, 'nameChange') && !validateNameChange(classification.nameChange)) throw new Error('玩家称呼变化格式无效。');
+    if (state.player.progression) assertSelectedRules(state.player.progression, classification.ruleIds);
     const available = listAvailableMoves(state, scenario);
     const allowed = available.find(move => move.id === classification.actionId);
     if (!allowed) throw new Error('行动分类引用了当前不可用动作。');
     const move = moveById(scenario, classification.actionId);
     if (classification.attribute !== move.attribute) throw new Error('行动分类属性与剧本判定不一致。');
+    if (classification.skillId != null) {
+        const skill = usableSkills(state.player.progression).find(e => e.id === classification.skillId);
+        if (!skill) throw new Error('导演选择了未学会、停用或不存在的技能。');
+        let check = skillCheck(skill, move, move.checkId ? checkById(scenario, move.checkId) : null);
+        const mastered = check.difficulty === 100;
+        if (mastered) check = resolveSkillCheck(check);
+        return prepare(state, scenario, {
+            kind: 'action', move: mastered ? skillOutcomeMove(scenario, check) : quietSkillMove(move, 0), check,
+            preparedId: classification.transactionId, playerRuleIds: classification.ruleIds, playerNameChange: classification.nameChange,
+            mustHappen: mastered ? [`玩家尝试：${classification.summary}`, skillResultFact(check), ...skillOutcomeMove(scenario, check).mustHappen]
+                : [`玩家尝试：${classification.summary}`, `本次技能「${skill.name}」的使用条件已符合，熟练度 ${check.difficulty}/100。停在触发前，等待玩家公开投骰；不得提前演出效果、移动场景或揭露后果。`], deps,
+        });
+    }
     const check = move.checkId ? checkProjection(checkById(scenario, move.checkId)) : null;
     return prepare(state, scenario, {
         kind: 'action',
         move,
         check,
         preparedId: classification.transactionId,
+        playerRuleIds: classification.ruleIds,
+        playerNameChange: classification.nameChange,
         mustHappen: [
             `玩家尝试：${classification.summary}`,
             ...move.mustHappen,
@@ -497,6 +532,27 @@ export function prepareActionTurn(inputState, inputScenario, classification, dep
         ],
         deps,
     });
+}
+
+function checkMatchesScenario(check, scenario) {
+    if (!check.skill) return scenario.checks.some(c => c.id === check.id);
+    const move = scenario.scenes.flatMap(s => s.moves).find(m => m.id === check.skill.moveId);
+    return Boolean(move && move.checkId === check.skill.storyCheckId);
+}
+function quietSkillMove(move, clockAdvance = move.clockAdvance) {
+    return { ...move, clockAdvance, checkId:null, attribute:null, mustHappen:[], revealSecretIds:[],
+        publicPatch:{objective:null,knownPeopleIds:[],knownClueIds:[],itemIds:[],crisisIds:[]},
+        hiddenPatch:{occurredFactIds:[],setVariables:{}}, nextSceneId:null, endingId:null };
+}
+function skillOutcomeMove(scenario, check) {
+    const base = moveById(scenario,check.skill.moveId);
+    if (!check.skill.storyCheckId) return check.roll.outcome === 'success' ? {...base} : quietSkillMove(base);
+    const storyCheck = checkById(scenario,check.skill.storyCheckId);
+    const consequence = moveById(scenario,check.roll.outcome === 'success' ? storyCheck.successMoveId : storyCheck.failureMoveId);
+    return { ...consequence, clockAdvance:base.clockAdvance+consequence.clockAdvance,
+        mustHappen:[...base.mustHappen,...consequence.mustHappen], revealSecretIds:unique([...base.revealSecretIds,...consequence.revealSecretIds]),
+        publicPatch:{objective:consequence.publicPatch.objective ?? base.publicPatch.objective,...Object.fromEntries(['knownPeopleIds','knownClueIds','itemIds','crisisIds'].map(k=>[k,unique([...base.publicPatch[k],...consequence.publicPatch[k]])]))},
+        hiddenPatch:{occurredFactIds:unique([...base.hiddenPatch.occurredFactIds,...consequence.hiddenPatch.occurredFactIds]),setVariables:{...base.hiddenPatch.setVariables,...consequence.hiddenPatch.setVariables}} };
 }
 
 function rollDie(random, sides) {
@@ -510,6 +566,11 @@ export function createCheckResult(inputState, inputScenario, input = {}, deps = 
     const scenario = assertScenario(inputScenario);
     if (state.phase !== 'awaiting_check' || !state.public.pendingCheck) throw new Error('当前没有等待公开投骰的判定。');
     if (!exact(input, ['checkId'])) throw new Error('投骰输入只能包含 checkId。');
+    if (state.public.pendingCheck.skill) {
+        if (input.checkId !== state.public.pendingCheck.id) throw new Error('投骰不属于当前技能判定。');
+        const resolved = resolveSkillCheck(state.public.pendingCheck, dependency(deps,'random',Math.random));
+        return Object.freeze({ checkId: resolved.id, ...resolved.roll, consequenceMoveId: skillOutcomeMove(scenario,resolved).id });
+    }
     const check = checkById(scenario, input.checkId);
     if (check.id !== state.public.pendingCheck.id) throw new Error('投骰不属于当前等待的判定。');
     const sides = Number(check.formula.slice(1));
@@ -533,6 +594,14 @@ export function prepareCheckConsequence(inputState, inputScenario, result, deps 
     if (state.phase !== 'awaiting_check' || !state.public.pendingCheck) throw new Error('当前没有可结算的公开判定。');
     if (!exact(result, ['checkId', 'dice', 'modifier', 'total', 'outcome', 'consequenceMoveId'])) throw new Error('判定结果格式无效。');
     if (result.checkId !== state.public.pendingCheck.id) throw new Error('判定结果不属于当前等待的公开判定。');
+    if (state.public.pendingCheck.skill) {
+        const resolved = { ...clone(state.public.pendingCheck), status:'resolved', roll:{dice:result.dice,modifier:result.modifier,total:result.total,outcome:result.outcome} };
+        if (!validSkillCheck(resolved)) throw new Error('技能点数或触发结果无效。');
+        const move = skillOutcomeMove(scenario,resolved);
+        if (result.consequenceMoveId !== move.id) throw new Error('技能后果与已公开骰果不符。');
+        state.phase = 'playing'; state.public.pendingCheck = null; state.public.lastCheck = clone(resolved);
+        return prepare(state,scenario,{kind:'check_consequence',move,check:resolved,mustHappen:[skillResultFact(resolved),...move.mustHappen],deps});
+    }
     const formulaSides = Number(state.public.pendingCheck.formula.slice(1));
     if (!Array.isArray(result.dice) || result.dice.length !== 1 || !Number.isSafeInteger(result.dice[0]) || result.dice[0] < 1 || result.dice[0] > formulaSides) throw new Error(`公开 ${state.public.pendingCheck.formula} 骰面超出公式范围。`);
     if (!Number.isSafeInteger(result.modifier) || !Number.isSafeInteger(result.total) || !['success', 'failure'].includes(result.outcome)) throw new Error('判定修正、总点或成败格式无效。');
@@ -548,7 +617,7 @@ export function prepareCheckConsequence(inputState, inputScenario, result, deps 
         ...move.mustHappen,
         ...pendingClockWarnings(scenario, state, move.clockAdvance, Boolean(move.endingId)),
     ];
-    if (mustHappen.length > 32) throw new Error('本轮强制剧情事件超过协议上限，剧本必须缩短单轮跨越。');
+    if (mustHappen.length > MAX_TURN_EVENTS) throw new Error('本轮强制剧情事件超过协议上限，剧本必须缩短单轮跨越。');
     const turn = {
         protocol: 'candy-w-rpg-director/prepared-turn/v2',
         version: 2,
@@ -563,7 +632,7 @@ export function prepareCheckConsequence(inputState, inputScenario, result, deps 
             forbiddenReveal: scenario.secrets.filter(secret => !state.hidden.revealedSecretIds.includes(secret.id) && !move.revealSecretIds.includes(secret.id)).map(secret => secret.id),
             scanSeeds: scanSeedsFor(scenario, state, move, move.nextSceneId),
             publicPatch: publicPatchFromMove(move),
-            hiddenPatch: hiddenPatchFromMove(move),
+            hiddenPatch: hiddenPatchFromMove(move, scenario),
             nextSceneId: move.nextSceneId,
             check: resolved,
             endingId: move.endingId,
@@ -612,6 +681,8 @@ export function commitPreparedTurn(inputState, inputTurn, { performance, deps = 
     if (!validTurn(turn) || turn.baseRevision !== state.revision) throw new Error('待提交事务无效或绑定了过期 revision。');
     if (!text(performance, 20_000, false)) throw new Error('完整演出正文不能为空。');
     const next = clone(state);
+    if (turn.decision.playerNameChange) next.player = renamePlayer(next.player, turn.decision.playerNameChange.name, state.revision + 1, turn.decision.playerNameChange.source);
+    if (next.player.progression) next.player.progression = previewPlayerTurn(state, turn).progression;
     next.hidden.clock.minute += turn.clockAdvance;
     next.public.perceptibleClock.minute += turn.clockAdvance;
     mergePublic(next, turn.decision.publicPatch);
@@ -648,29 +719,59 @@ export function commitPreparedTurn(inputState, inputTurn, { performance, deps = 
     return assertState(next);
 }
 
-export function applyCommittedProjection(inputState, inputScenario) {
-    const state = assertState(clone(inputState));
-    const scenario = assertScenario(inputScenario);
+function applySceneProjection(state, scenario, turn = null) {
     const scene = sceneById(scenario, state.hidden.currentSceneId);
     state.public.scene = sceneProjection(scenario, scene);
     state.public.act = actProjection(scenario, scene);
-    if (!state.public.objective) state.public.objective = scene.objective;
-    applyClock(state, scenario, 0);
+    if (turn?.decision.nextSceneId || !state.public.objective) state.public.objective = turn?.decision.publicPatch.objective ?? scene.objective;
+    state.hidden.occurredFacts = unique([...state.hidden.occurredFacts, ...scene.entryFacts]);
+    return state;
+}
+
+export function applyCommittedProjection(inputState, inputScenario) {
+    const state = assertState(clone(inputState)), scenario = assertScenario(inputScenario);
+    applySceneProjection(state, scenario); applyClock(state, scenario, 0);
     return assertState(state);
 }
 
 export function commitTurn(inputState, inputScenario, inputTurn, options) {
-    const scenario = assertScenario(inputScenario);
-    const before = inputState.hidden.clock.minute;
-    const committed = commitPreparedTurn(inputState, inputTurn, options);
-    const next = applyCommittedProjection(committed, scenario);
-    const intended = inputTurn.decision.endingId
-        ? scenario.clocks[0].endMinute
-        : Math.min(scenario.clocks[0].endMinute, before + inputTurn.clockAdvance);
-    next.hidden.clock.minute = before;
-    next.public.perceptibleClock.minute = before;
-    applyClock(next, scenario, intended - before);
+    const scenario = assertScenario(inputScenario), before = inputState.hidden.clock.minute;
+    const next = commitPreparedTurn(inputState, inputTurn, options);
+    applySceneProjection(next, scenario, inputTurn);
+    next.hidden.clock.minute = before; next.public.perceptibleClock.minute = before;
+    applyClock(next, scenario, inputTurn.decision.endingId ? scenario.clocks[0].endMinute - before : inputTurn.clockAdvance);
+    next.history.at(-1).clockMinute = next.hidden.clock.minute;
     return assertState(next);
+}
+
+/** Preview only: no persisted state, history entry, random draw or resource settlement. */
+export function preparePublicTurnContent(inputState, inputScenario, turn, { playerAction = '' } = {}) {
+    const state = assertState(clone(inputState)), scenario = assertScenario(inputScenario);
+    if (!validTurn(turn) || turn.baseRevision !== state.revision || JSON.stringify(state.pendingTransaction) !== JSON.stringify(turn)) throw new Error('本轮内容与待执行事务不一致。');
+    mergePublic(state, turn.decision.publicPatch);
+    if (turn.decision.nextSceneId) state.hidden.currentSceneId = turn.decision.nextSceneId;
+    applySceneProjection(state, scenario, turn);
+    applyClock(state, scenario, turn.decision.endingId ? scenario.clocks[0].endMinute - state.hidden.clock.minute : turn.clockAdvance);
+    const newlyPublic = Object.fromEntries(['knownPeopleIds', 'knownClueIds', 'itemIds', 'crisisIds'].map(field => [field, turn.decision.publicPatch[field].filter(id => !inputState.public[field].includes(id))]));
+    const selection = selectPublicKnowledge(scenario, state.public, { playerAction, newlyPublic });
+    const events = [...turn.decision.mustHappen];
+    if (turn.decision.nextSceneId) {
+        const scene = state.public.scene;
+        events.push(`本轮抵达${scene.location}（${scene.timeLabel}）：${scene.description}`, `到场后当前目标：${state.public.objective}`);
+    }
+    for (const secret of scenario.secrets.filter(secret => turn.decision.hiddenPatch.revealedSecretIds.includes(secret.id) && !inputState.hidden.revealedSecretIds.includes(secret.id))) events.push(`本轮公开得知：${secret.revealText}`);
+    if (turn.decision.endingId) {
+        const ending = endingById(scenario, turn.decision.endingId);
+        events.push(`本轮已经确定的结局：${ending.title}。${ending.summary}`, `对应尾声：${ending.epilogue}`);
+    }
+    // Only authored, currently public descriptions can disambiguate generic leak cues.
+    // Player names, supplemental settings and model action summaries are not exemptions.
+    const publicVocabulary = [
+        scenario.public.title, scenario.public.tone,
+        ...['title', 'location', 'timeLabel', 'description'].map(key => state.public.scene[key]),
+        ...['people', 'clues', 'items', 'crises'].flatMap(kind => selection[kind].flatMap(entry => [entry.name, entry.detail, entry.relation, entry.urgency])),
+    ].filter(value => typeof value === 'string' && value.trim());
+    return { publicFacts: buildPublicPerformanceFacts(state, scenario, { playerName: turn.decision.playerNameChange?.name, selection }), mustHappen: unique(events), publicVocabulary, evidence: [{ title: state.public.scene.title, reason: turn.decision.nextSceneId ? '本轮到达' : '当前场景' }, ...selection.evidence] };
 }
 
 export function recoverPendingState(inputState) {
@@ -718,15 +819,22 @@ export function projectPublicState(inputState, inputScenario) {
     });
 }
 
-export function buildPublicPerformanceFacts(inputState, inputScenario) {
+export function buildPublicPerformanceFacts(inputState, inputScenario, { playerName, selection = selectPublicKnowledge(inputScenario, inputState.public) } = {}) {
     const projected = projectPublicState(inputState, inputScenario);
     return [
+        `故事氛围：${inputScenario.public.tone}。`,
         `当前场景：${projected.scene.title}；地点：${projected.scene.location}；时间：${projected.scene.timeLabel}。`,
-        `玩家角色：${projected.player.name}；设定：${projected.player.concept || '未补充'}；与当前角色关系：${projected.player.relationship || '沿聊天历史发展'}。`,
+        `本场景背景（不要每轮重复描写）：${projected.scene.description}`,
+        `当前时间进度：${inputState.public.perceptibleClock.label}，${inputState.hidden.clock.minute} / ${inputState.public.perceptibleClock.endMinute} 分钟。`,
+        `玩家角色：${playerName ?? projected.player.name}；设定：${projected.player.concept || '未补充'}；与当前角色关系：${projected.player.relationship || '沿聊天历史发展'}。`,
         ...projected.objectives.map(item => `已知目标：${item.name}`),
-        ...projected.characters.map(item => `已认识人物：${item.name}（${item.relation}）—${item.detail}`),
-        ...projected.clues.map(item => `已知线索：${item.name}—${item.detail}`),
-        ...projected.items.map(item => `已有物品：${item.name}—${item.detail}`),
-        ...projected.crises.map(item => `可感知危机：${item.name}—${item.detail}（${item.urgency}）`),
+        ...selection.people.map(item => `已认识人物：${item.name}（${item.relation}）—${item.detail}`),
+        ...selection.clues.map(item => `已知线索：${item.name}—${item.detail}`),
+        ...selection.items.map(item => `已有物品：${item.name}—${item.detail}`),
+        ...selection.crises.map(item => `可感知危机：${item.name}—${item.detail}（${item.urgency}）`),
     ];
+}
+
+export function previewPlayerTurn(state, turn) {
+    return state.player.progression ? settleProgression(state.player.progression, { ruleIds: turn.decision.playerRuleIds ?? [], kind: turn.kind, check: turn.decision.check, revision: state.revision + 1 }) : { facts: [], effects: [] };
 }

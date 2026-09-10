@@ -1,3 +1,4 @@
+import { generatedPlayer } from './player-fixture.mjs';
 const identityKey = identity => identity ? `${identity.characterId}\u0000${identity.chatId}` : '';
 
 const clone = value => value === undefined ? undefined : structuredClone(value);
@@ -174,9 +175,16 @@ export class FakeOfficialAdapter {
         this.rawDecisions.push({ actionId, attribute, summary });
     }
 
+    enqueueScenario(draft, {includePlayer=true} = {}) {
+        const { scenes, ...rest } = clone(draft);
+        const scenePlans = scenes.map(s => ({ id: s.id, actId: s.actId, title: s.title, purpose: s.objective, context: { people: [...new Set(s.moves.flatMap(m=>m.publicPatch.knownPeopleIds))], clues: [...new Set(s.moves.flatMap(m=>m.publicPatch.knownClueIds))], items: [...new Set(s.moves.flatMap(m=>m.publicPatch.itemIds))], crises: [...new Set(s.moves.flatMap(m=>m.publicPatch.crisisIds))], npcIds: [], secretIds: [...new Set(s.moves.flatMap(m=>m.revealSecretIds))], coreFactIds: [], worldEntryIds: [] }, moves: s.moves.map(({ id, attribute, checkId, nextSceneId, endingId }) => ({ id, attribute, checkId, nextSceneId, endingId })) }));
+        this.enqueueRaw(JSON.stringify({ ...rest, scenePlans }));
+        for (const scene of scenes) this.enqueueRaw(JSON.stringify(scene));
+        if(includePlayer)this.enqueueRaw(JSON.stringify(generatedPlayer()));
+    }
     enqueueRaw(value) { this.rawDecisions.push(value); }
 
-    async generateRawText(prompt, expectedIdentity, options = {}) {
+    async generateStructured(prompt, expectedIdentity, options = {}) {
         if (!sameIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('fake identity changed during raw generation');
         this.ownedGenerationCancelled = false;
         this.rawPrompts.push(String(prompt));
@@ -197,11 +205,14 @@ export class FakeOfficialAdapter {
                 actionId: queued.actionId,
                 attribute: queued.attribute,
                 summary: queued.summary,
+                ...(options.schema?.properties?.ruleIds ? {ruleIds:queued.ruleIds ?? []} : {}),
+                ...(options.schema?.properties?.skillId ? {skillId:queued.skillId ?? null} : {}),
+                ...(prompt.includes('\"playerIdentity\"') ? { nameChange: queued.nameChange ?? null } : {}),
             });
         }
         if (this.ownedGenerationCancelled) throw new Error('fake raw generation cancelled');
         if (!sameIdentity(this.currentChatIdentity(), expectedIdentity)) throw new Error('fake identity changed after raw generation');
-        return result;
+        return { requestId: 'isolated-request', route: 'isolated', model: 'isolated-model', outputMode: 'json_object', content: result, finishReason: 'stop', refused: false, usage: { input: 10, output: 20 } };
     }
 
     async requestAutomaticGeneration(expectedIdentity) {

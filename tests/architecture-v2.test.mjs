@@ -49,7 +49,7 @@ test('only the host adapter boundary imports SillyTavern core modules', () => {
     const violations = [];
     for (const [file, source] of sources) {
         for (const specifier of importsOf(source)) {
-            if (!/(?:^|\/)(?:extensions|script)\.js(?:[?#].*)?$/.test(specifier)) continue;
+            if (!/(?:^|\/)(?:extensions|script|lib|world-info|engine)\.js(?:[?#].*)?$/.test(specifier)) continue;
             if (!file.startsWith('src/host/')) violations.push(`${file} imports ${specifier}`);
         }
         if (!file.startsWith('src/host/')) {
@@ -88,7 +88,7 @@ test('domain, protocol, and compilation stay independent of browser and SillyTav
         if (!/^src\/(?:domain|protocol|compilation)\//.test(file)) continue;
         for (const match of source.matchAll(runtimePattern)) violations.push(`${file} uses ${match[0]}`);
         for (const specifier of importsOf(source)) {
-            if (/(?:^|\/)(?:extensions|script)\.js(?:[?#].*)?$/.test(specifier)) {
+            if (/(?:^|\/)(?:extensions|script|lib|world-info|engine)\.js(?:[?#].*)?$/.test(specifier)) {
                 violations.push(`${file} imports SillyTavern core ${specifier}`);
             }
         }
@@ -113,7 +113,7 @@ test('local import graph obeys v2 layer boundaries and every target exists', () 
         for (const specifier of importsOf(source)) {
             const target = resolveLocalImport(file, specifier);
             if (!target) continue;
-            if (target.startsWith('../') && /(?:^|\/)(?:extensions|script)\.js(?:[?#].*)?$/.test(specifier)) continue;
+            if (target.startsWith('../') && /(?:^|\/)(?:extensions|script|lib|world-info|engine)\.js(?:[?#].*)?$/.test(specifier)) continue;
             if (!sources.has(target)) {
                 violations.push(`${file} has unresolved local import ${specifier} -> ${target}`);
                 continue;

@@ -12,10 +12,10 @@ function installSettings(application, adapter) {
     const host = document.createElement('div');
     host.id = 'cw-director-v2-settings';
     host.innerHTML = `<div class="inline-drawer">
-        <div class="inline-drawer-toggle inline-drawer-header"><b>Candy W 跑团导演 v2</b></div>
+        <div class="inline-drawer-toggle inline-drawer-header"><b>Candy W 上帝导演</b></div>
         <div class="inline-drawer-content">
             <label class="checkbox_label"><input type="checkbox" data-cw-setting="enabled" ${settings.enabled ? 'checked' : ''}> 启用看不见的故事导演</label>
-            <p>只在当前单角色聊天中工作；沿用当前模型、角色卡、聊天、世界书与原生上下文。关闭会清空本扩展的导演指令与 World Info scan seed。</p>
+            <p>导演 API 独立直连；角色正文沿用酒馆主 API 与代理。只在当前单角色聊天中工作，保留角色卡、聊天、世界书与原生上下文。关闭会清空本扩展的导演指令与 World Info scan seed。</p>
         </div>
     </div>`;
     host.addEventListener('change', async event => {
